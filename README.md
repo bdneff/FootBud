@@ -130,7 +130,8 @@ the AI (targets and avoids) become score nudges, not overrides.
 
 1. ~~Manual draft companion with quantitative engine~~ (done)
 2. ~~AI strategy builder, conversational editing, in-draft assistant~~ (done)
-3. Deeper multi-pick decision trees with pruning
+3. ~~Decision tree view with pruned two-pick branches~~ (done; deeper
+   3-pick lookahead is a future refinement)
 4. Live draft integrations (ESPN and others) behind a `DraftSource`
    adapter, so the engine never cares where picks come from
 

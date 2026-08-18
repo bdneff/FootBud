@@ -801,3 +801,76 @@ label {
 .ai-builder .button-row {
   align-items: center;
 }
+
+/* ---------- Decision tree ---------- */
+
+.decision-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tree-branch {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+}
+.tree-branch.best {
+  border-color: var(--accent-dim);
+}
+.tree-root {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tree-ev {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+.tree-best-tag {
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+.tree-leaf {
+  display: flex;
+  gap: 8px;
+  color: var(--text-dim);
+  padding-left: 6px;
+  margin-top: 3px;
+}
+.tree-connector {
+  color: #4d5964;
+  font-family: monospace;
+}
+
+/* ---------- Engine details ---------- */
+
+.engine-details {
+  margin-top: 14px;
+}
+.mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.mini-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 500;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.mini-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid #1b222a;
+}
+.mini-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

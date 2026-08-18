@@ -1,6 +1,10 @@
+import { useMemo } from 'react';
 import type { DraftState } from '../draft/state';
+import { buildDecisionTree } from '../engine/decisionTree';
 import type { Recommendation, ScoredPlayer } from '../engine/recommend';
 import { useAppStore } from '../store';
+import { DecisionTreeView } from './DecisionTreeView';
+import { EngineDetails } from './EngineDetails';
 
 function AltRow({ alt }: { alt: ScoredPlayer }) {
   const reason = alt.reasons[0] ?? 'Solid value at the position.';
@@ -31,6 +35,10 @@ export function RecommendationPanel({
   draft: DraftState;
 }) {
   const makePick = useAppStore((s) => s.makePick);
+  const tree = useMemo(
+    () => (rec && !draft.complete ? buildDecisionTree(draft, rec) : null),
+    [draft, rec],
+  );
 
   if (draft.complete || !rec || !rec.best) {
     return (
@@ -131,6 +139,9 @@ export function RecommendationPanel({
           </ol>
         </>
       )}
+
+      <DecisionTreeView tree={tree} />
+      <EngineDetails rec={rec} />
     </>
   );
 }
