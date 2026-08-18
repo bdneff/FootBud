@@ -14,7 +14,11 @@
       "run_at": "document_idle"
     },
     {
-      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://bdneff.github.io/*"
+      ],
       "js": ["footbud-content.js"],
       "run_at": "document_idle"
     }

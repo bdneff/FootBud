@@ -6,7 +6,9 @@
 // flowing, set DEBUG = true, open the console on the draft room tab, and
 // adjust the selectors in findPickRows() below.
 
-const DEBUG = false;
+// Debug logging is ON by default while the parser is being calibrated
+// against real draft rooms. Watch the console on the ESPN draft room tab.
+const DEBUG = true;
 const POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'D/ST', 'DST'];
 const POSITION_RE = new RegExp(`\\b(${POSITIONS.join('|').replace('/', '\\/')})\\b`);
 
@@ -67,9 +69,21 @@ function parseRow(row, index) {
 }
 
 let lastSent = '';
+let lastEmptyLog = 0;
 
 function scan() {
   const rows = findPickRows();
+  if (DEBUG && rows.length === 0 && Date.now() - lastEmptyLog > 15000) {
+    lastEmptyLog = Date.now();
+    log('no pick rows matched yet. If picks have been made, copy this diagnostic for calibration:');
+    const sample = [...document.querySelectorAll('table, [class*="pick"], [class*="Pick"], [class*="history"]')]
+      .slice(0, 5)
+      .map((el) => `${el.tagName}.${String(el.className).slice(0, 80)} :: ${(el.textContent || '').replace(/\s+/g, ' ').slice(0, 120)}`);
+    log(sample);
+  }
+  if (DEBUG && rows.length > 0) {
+    log('sample row texts:', rows.slice(0, 3).map((r) => (r.textContent || '').replace(/\s+/g, ' ').slice(0, 100)));
+  }
   const picks = rows
     .map((row, i) => parseRow(row, i))
     .filter(Boolean)
