@@ -310,12 +310,23 @@ function resolvedSocketPicks() {
 
 let wsLogCount = 0;
 let wsLogWindowStart = 0;
+let draftSocketSeen = false;
 document.addEventListener('footbud-ws-message', (event) => {
   const detail = event.detail || {};
   const data = String(detail.data || '').trim();
+  const url = String(detail.url || '');
+
+  // The draft feed lives on fantasydraft.espn.com; everything else on the
+  // page (telemetry etc.) is ignored for pick parsing.
+  const isDraftSocket = url.includes('fantasydraft');
+  if (isDraftSocket && !draftSocketSeen) {
+    draftSocketSeen = true;
+    log('draft socket connected:', url.slice(0, 90));
+    ensurePlayerMap();
+  }
 
   const parts = data.split(/\s+/);
-  if (parts[0] === 'SELECTED' && parts.length >= 3 && /^-?\d+$/.test(parts[2])) {
+  if (isDraftSocket && parts[0] === 'SELECTED' && parts.length >= 3 && /^-?\d+$/.test(parts[2])) {
     ensurePlayerMap();
     recordSocketPick(Number(parts[2]));
     scan();
