@@ -20,12 +20,13 @@ entry, or sync a Sleeper draft natively.
 To have ESPN picks stream in automatically, install the companion
 extension:
 
-1. Download the code: on https://github.com/bdneff/FootBud click the
-   green **Code** button, then **Download ZIP**, and extract it
+1. Download the extension:
+   https://github.com/bdneff/FootBud/raw/main/footbud-extension.zip
+   and extract it into its own folder
 2. Open `chrome://extensions`
 3. Turn on **Developer mode** (top right)
-4. Click **Load unpacked** and select the `extension` folder inside the
-   extracted files (the folder itself, not a file in it)
+4. Click **Load unpacked** and select the extracted folder (the one
+   containing `manifest.json`)
 
 Then:
 

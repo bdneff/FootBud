@@ -20,6 +20,35 @@ your browser already loaded, and nothing leaves your machine.
 2. Turn on "Developer mode" (top right)
 3. Click "Load unpacked" and select this `extension/` folder
 
+## Publishing to the Chrome Web Store (one-click install for everyone)
+
+Chrome only allows one-click installs through the Web Store, so that is
+the path to letting testers skip Developer mode entirely. Publishing as
+**unlisted** keeps it out of search; only people with the link can
+install it. One-time $5 developer fee, review usually takes 1 to 3 days.
+
+1. Run `npm run ext:pack` (or use the checked-in `footbud-extension.zip`
+   at the repo root)
+2. Create a developer account at
+   https://chrome.google.com/webstore/devconsole (sign in with Google,
+   pay the $5 registration)
+3. Click "New item" and upload `footbud-extension.zip`
+4. Fill in the listing: the 128px icon is in `icons/icon128.png`, you
+   need at least one 1280x800 screenshot (screenshot FootBud during a
+   draft), and a short description
+5. Privacy tab: declare that the extension reads the ESPN draft room
+   page the user has open and relays picks to the FootBud tab in the
+   same browser; no data is collected, stored remotely, or sent to any
+   server. Single purpose: draft pick relay.
+6. Set visibility to **Unlisted** and submit for review
+7. When approved, share the store link; installs and updates are then
+   one click
+
+After any code change: bump `"version"` in `manifest.json`, run
+`npm run ext:pack`, and upload the new zip in the developer console.
+Store installs update themselves within hours; nobody has to
+re-download anything.
+
 ## Use
 
 1. In FootBud, set up your league (teams, roster, your draft position,

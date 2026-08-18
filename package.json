@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "ext:pack": "cd extension && rm -f ../footbud-extension.zip && zip -r ../footbud-extension.zip manifest.json background.js espn-main.js espn-content.js footbud-content.js icons/"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",
