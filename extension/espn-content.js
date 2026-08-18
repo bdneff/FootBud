@@ -16,6 +16,78 @@ function log(...args) {
   if (DEBUG) console.log('[footbud-bridge]', ...args);
 }
 
+// ---- Extension lifecycle guard ------------------------------------------
+// When the extension is reloaded or updated (the refresh button on
+// chrome://extensions), content scripts already running in open tabs are
+// orphaned: their chrome.runtime dies and every sendMessage after that
+// throws "Extension context invalidated" synchronously. An orphaned script
+// cannot reconnect; the only fix is refreshing the tab. Detect the state
+// once, stop all timers, and tell the user loudly with an on-page banner.
+// Captured picks survive in sessionStorage across the refresh.
+
+let contextDead = false;
+let scanTimer = null;
+let heartbeatTimer = null;
+let observerRef = null;
+
+function showReloadBanner() {
+  try {
+    if (document.getElementById('footbud-reload-banner')) return;
+    const el = document.createElement('div');
+    el.id = 'footbud-reload-banner';
+    el.textContent =
+      'FootBud lost its connection (the extension was reloaded or updated). Click here to refresh this tab and reconnect — captured picks are kept.';
+    el.style.cssText =
+      'position:fixed;top:0;left:0;right:0;z-index:2147483647;background:#b91c1c;color:#fff;' +
+      'font:14px/1.5 system-ui,sans-serif;padding:9px 16px;text-align:center;cursor:pointer;';
+    el.addEventListener('click', () => location.reload());
+    (document.body || document.documentElement).appendChild(el);
+  } catch {
+    // Banner is best-effort; the console warning already fired.
+  }
+}
+
+function markContextDead() {
+  if (contextDead) return;
+  contextDead = true;
+  if (scanTimer) clearInterval(scanTimer);
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  if (observerRef) {
+    try {
+      observerRef.disconnect();
+    } catch {
+      // Already gone.
+    }
+  }
+  console.warn(
+    '[footbud-bridge] The FootBud extension was reloaded or updated while this tab was open. ' +
+      'Refresh this ESPN tab (and the FootBud tab) to reconnect. Captured picks are kept.',
+  );
+  showReloadBanner();
+}
+
+function extensionAlive() {
+  if (contextDead) return false;
+  try {
+    if (chrome.runtime && chrome.runtime.id) return true;
+  } catch {
+    // Accessing chrome.runtime on an orphaned script can itself throw.
+  }
+  markContextDead();
+  return false;
+}
+
+/** chrome.runtime.sendMessage that survives extension reloads instead of throwing. */
+function safeSend(message, callback) {
+  if (!extensionAlive()) return;
+  try {
+    if (callback) chrome.runtime.sendMessage(message, callback);
+    else chrome.runtime.sendMessage(message).catch(() => {});
+  } catch {
+    markContextDead();
+  }
+}
+
 // Strategy: collect candidate rows from any element that looks like a pick
 // entry. Calibrated against a live 2026 draft room, which renders picks as
 // <li class="picklist--item picklist--pick"> inside UL.picklist; older
@@ -221,7 +293,7 @@ function scan() {
   if (fingerprint === lastSent) return;
   lastSent = fingerprint;
   log('sending picks:', picks.map((p) => `${p.overall} ${p.playerName} ${p.position ?? '?'}`));
-  chrome.runtime.sendMessage({ type: 'footbud-picks', picks }).catch(() => {});
+  safeSend({ type: 'footbud-picks', picks });
 }
 
 // Team count improves round/pick math; FootBud can not tell us, so read it
@@ -276,7 +348,13 @@ let playerMapRequested = false;
 function ensurePlayerMap() {
   if (playerMap || playerMapRequested) return;
   playerMapRequested = true;
-  chrome.runtime.sendMessage({ type: 'footbud-need-players', season: SEASON }, (resp) => {
+  safeSend({ type: 'footbud-need-players', season: SEASON }, (resp) => {
+    const err = chrome.runtime && chrome.runtime.lastError;
+    if (err) {
+      log('player directory request failed:', err.message);
+      playerMapRequested = false; // retry on a later message
+      return;
+    }
     if (resp && resp.players) {
       playerMap = resp.players;
       log(`player directory loaded: ${Object.keys(playerMap).length} players`);
@@ -359,29 +437,27 @@ function pushStatus(force) {
   const now = Date.now();
   if (!force && now - lastStatusSent < 1000) return;
   lastStatusSent = now;
-  chrome.runtime
-    .sendMessage({
-      type: 'footbud-status',
-      status: {
-        myTeamId,
-        onClockTeamId: clockState.onClockTeamId,
-        yourTurn:
-          myTeamId !== null &&
-          clockState.onClockTeamId !== null &&
-          myTeamId === clockState.onClockTeamId,
-        msRemaining: clockState.msRemaining,
-        at: clockState.at,
-        // Your draft slot, once round-1 frames have taught it.
-        mySlot: myTeamId !== null && teamSlotMap[myTeamId] ? teamSlotMap[myTeamId] : null,
-        numberingDegraded,
-      },
-    })
-    .catch(() => {});
+  safeSend({
+    type: 'footbud-status',
+    status: {
+      myTeamId,
+      onClockTeamId: clockState.onClockTeamId,
+      yourTurn:
+        myTeamId !== null &&
+        clockState.onClockTeamId !== null &&
+        myTeamId === clockState.onClockTeamId,
+      msRemaining: clockState.msRemaining,
+      at: clockState.at,
+      // Your draft slot, once round-1 frames have taught it.
+      mySlot: myTeamId !== null && teamSlotMap[myTeamId] ? teamSlotMap[myTeamId] : null,
+      numberingDegraded,
+    },
+  });
 }
 
 // Heartbeat so FootBud can detect a dead feed (closed tab, dropped socket):
 // while the draft socket has been seen, a status goes out at least every 5s.
-setInterval(() => {
+heartbeatTimer = setInterval(() => {
   if (draftSocketSeen) pushStatus(true);
 }, 5000);
 
@@ -503,9 +579,7 @@ function resolveEspnPlayerId(playerName, position) {
 /** Report a pick submission outcome back to the FootBud tab. */
 function reportPickResult(ok, reason, playerName) {
   log(ok ? `SELECT sent for ${playerName}` : `pick failed: ${reason}`);
-  chrome.runtime
-    .sendMessage({ type: 'footbud-pick-result', ok, reason: reason ?? null, playerName })
-    .catch(() => {});
+  safeSend({ type: 'footbud-pick-result', ok, reason: reason ?? null, playerName });
 }
 
 let pendingPickName = null;
@@ -545,10 +619,12 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 const observer = new MutationObserver((mutations) => {
+  if (contextDead) return;
   sniffMutations(mutations);
   detectTeams();
   scan();
 });
+observerRef = observer;
 observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-setInterval(scan, 4000);
+scanTimer = setInterval(scan, 4000);
 log('FootBud ESPN bridge active');

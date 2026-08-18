@@ -10,6 +10,42 @@
 
 const PAGE_ORIGIN = window.location.origin;
 
+// When the extension is reloaded or updated while this tab is open, this
+// script is orphaned: chrome.runtime dies and sendMessage throws
+// "Extension context invalidated" synchronously. Detect it, stop, and tell
+// the app so the user sees a real error instead of silence.
+let contextDead = false;
+
+function markContextDead() {
+  if (contextDead) return;
+  contextDead = true;
+  console.warn(
+    '[footbud-bridge] The FootBud extension was reloaded or updated. Refresh this FootBud tab to reconnect.',
+  );
+}
+
+function extensionAlive() {
+  if (contextDead) return false;
+  try {
+    if (chrome.runtime && chrome.runtime.id) return true;
+  } catch {
+    // Accessing chrome.runtime on an orphaned script can itself throw.
+  }
+  markContextDead();
+  return false;
+}
+
+/** sendMessage that survives extension reloads. Returns the promise or null. */
+function safeSend(message) {
+  if (!extensionAlive()) return null;
+  try {
+    return chrome.runtime.sendMessage(message);
+  } catch {
+    markContextDead();
+    return null;
+  }
+}
+
 chrome.runtime.onMessage.addListener((message) => {
   if (!message) return;
   if (message.type === 'footbud-picks') {
@@ -33,19 +69,48 @@ window.addEventListener('message', (event) => {
   if (!data || data.source !== 'footbud-app') return;
 
   if (data.type === 'make-pick' && typeof data.playerName === 'string') {
-    chrome.runtime
-      .sendMessage({
-        type: 'footbud-make-pick',
-        playerName: data.playerName,
-        position: typeof data.position === 'string' ? data.position : null,
-      })
-      .catch(() => {});
+    const sent = safeSend({
+      type: 'footbud-make-pick',
+      playerName: data.playerName,
+      position: typeof data.position === 'string' ? data.position : null,
+    });
+    if (sent === null) {
+      // Orphaned script: surface a real failure so the app clears its
+      // pending state and the user makes the pick in the ESPN tab.
+      window.postMessage(
+        {
+          source: 'footbud-espn-bridge',
+          pickResult: {
+            ok: false,
+            reason:
+              'The FootBud extension was reloaded — refresh this page (and the ESPN tab) to reconnect, and make this pick in the ESPN tab.',
+            playerName: data.playerName,
+          },
+        },
+        PAGE_ORIGIN,
+      );
+    } else {
+      sent.catch(() => {});
+    }
     return;
   }
 
   if (data.type === 'request-projections' && typeof data.season === 'number') {
-    chrome.runtime
-      .sendMessage({ type: 'footbud-need-projections', season: data.season })
+    const sent = safeSend({ type: 'footbud-need-projections', season: data.season });
+    if (sent === null) {
+      window.postMessage(
+        {
+          source: 'footbud-espn-bridge',
+          projections: null,
+          projectionsSeason: data.season,
+          projectionsError:
+            'The FootBud extension was reloaded — refresh this page to reconnect.',
+        },
+        PAGE_ORIGIN,
+      );
+      return;
+    }
+    sent
       .then((resp) => {
         window.postMessage(
           {

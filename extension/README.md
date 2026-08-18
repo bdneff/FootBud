@@ -32,6 +32,22 @@ your browser already loaded, and nothing leaves your machine.
 If FootBud is not running on localhost, add your origin to the second
 `content_scripts` entry in `manifest.json` and reload the extension.
 
+## After updating the extension (IMPORTANT)
+
+Whenever the extension code changes (`git pull`) and you press the reload
+button on `chrome://extensions`, Chrome orphans the copies of the bridge
+already running in open tabs — they lose their link to the extension and
+every message they try to send throws "Extension context invalidated".
+
+**Always refresh BOTH tabs after reloading the extension:**
+
+1. Refresh the ESPN draft room tab (F5)
+2. Refresh the FootBud tab (F5)
+
+If you forget, the ESPN tab now shows a red banner ("FootBud lost its
+connection") — click it to refresh. Captured picks are kept across the
+refresh, so nothing is lost mid-draft.
+
 ## Status: experimental
 
 ESPN changes its draft room markup without notice, and this parser was
