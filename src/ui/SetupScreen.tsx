@@ -9,6 +9,7 @@ import {
 } from '../config/league';
 import { hasSavedDraft, useAppStore } from '../store';
 import { AiKeySettings, AiStrategyBuilder } from './AiStrategyBuilder';
+import { LiveSyncPanel } from './LiveSyncPanel';
 import { Logo } from './Logo';
 import { PlayerDataSources } from './PlayerDataSources';
 import { StrategyEditor } from './StrategyEditor';
@@ -161,6 +162,9 @@ export function SetupScreen() {
           <p className="hint">
             {rosterSize(config.roster)} roster spots per team, {totalPicks(config)} total picks.
           </p>
+
+          <h2>Live draft sync</h2>
+          <LiveSyncPanel />
         </section>
 
         <section className="setup-card">

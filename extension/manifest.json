@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "FootBud ESPN Draft Bridge",
+  "version": "0.1.0",
+  "description": "Relays picks from an open ESPN fantasy football draft room to the FootBud draft companion tab. Experimental.",
+  "permissions": [],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://fantasy.espn.com/*"],
+      "js": ["espn-content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["footbud-content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

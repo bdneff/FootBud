@@ -98,8 +98,12 @@ export function createDraft(config: LeagueConfig, players: Player[]): DraftState
   return derive(config, buildPool(players), []);
 }
 
-/** Record the on-the-clock team selecting a player. Throws on invalid picks. */
-export function applyPick(state: DraftState, playerId: string): DraftState {
+/**
+ * Record the on-the-clock team selecting a player. Throws on invalid picks.
+ * slotOverride lets a live sync attribute the pick to the team that actually
+ * made it when traded picks break the snake math; manual drafting omits it.
+ */
+export function applyPick(state: DraftState, playerId: string, slotOverride?: number): DraftState {
   if (state.complete || state.currentPick === null) {
     throw new Error('Draft is complete');
   }
@@ -108,12 +112,18 @@ export function applyPick(state: DraftState, playerId: string): DraftState {
   if (state.picks.some((p) => p.playerId === playerId)) {
     throw new Error(`${player.name} is already drafted`);
   }
+  if (
+    slotOverride !== undefined &&
+    (!Number.isInteger(slotOverride) || slotOverride < 1 || slotOverride > state.config.numberOfTeams)
+  ) {
+    throw new Error(`Invalid slot: ${slotOverride}`);
+  }
   const overall = state.currentPick;
   const pick: DraftPick = {
     overall,
     round: roundOfPick(overall, state.config.numberOfTeams),
     pickInRound: pickInRound(overall, state.config.numberOfTeams),
-    slot: slotOnClock(overall, state.config.numberOfTeams, state.config.draftType),
+    slot: slotOverride ?? slotOnClock(overall, state.config.numberOfTeams, state.config.draftType),
     playerId,
   };
   return derive(state.config, state.pool, [...state.picks, pick]);

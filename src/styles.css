@@ -874,3 +874,80 @@ label {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- Live sync ---------- */
+
+.live-sync .ai-chat-input input {
+  flex: 1;
+}
+.sync-drafts {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sync-drafts li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px 12px;
+}
+.sync-draft-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.sync-slot {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.espn-bridge-help {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  margin-top: 6px;
+}
+.espn-bridge-help ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.espn-bridge-help li {
+  margin-bottom: 3px;
+}
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px;
+}
+.sync-badge.polling {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.sync-badge.polling .sync-dot {
+  background: var(--accent);
+  animation: sync-pulse 1.6s ease-in-out infinite;
+}
+@keyframes sync-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}

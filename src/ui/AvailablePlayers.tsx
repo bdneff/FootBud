@@ -6,8 +6,10 @@ import { useAppStore } from '../store';
 export function AvailablePlayers({ rec }: { rec: Recommendation | null }) {
   const draft = useAppStore((s) => s.draft);
   const makePick = useAppStore((s) => s.makePick);
+  const liveSync = useAppStore((s) => s.liveSync);
   const [search, setSearch] = useState('');
   const [posFilter, setPosFilter] = useState<Position | 'ALL'>('ALL');
+  const synced = liveSync !== null && liveSync.status !== 'complete';
 
   const scoreById = useMemo(() => {
     const m = new Map<string, number>();
@@ -50,7 +52,11 @@ export function AvailablePlayers({ rec }: { rec: Recommendation | null }) {
         </div>
       </div>
       {!draft.complete && (
-        <p className="hint">Click Draft to record the pick for {onClockLabel}.</p>
+        <p className="hint">
+          {synced
+            ? `Picks arrive automatically from ${liveSync!.sourceLabel}.`
+            : `Click Draft to record the pick for ${onClockLabel}.`}
+        </p>
       )}
       <div className="player-table-wrap">
         <table className="player-table">
@@ -83,7 +89,7 @@ export function AvailablePlayers({ rec }: { rec: Recommendation | null }) {
                   <td>
                     <button
                       className="draft-btn"
-                      disabled={draft.complete}
+                      disabled={draft.complete || synced}
                       onClick={() => makePick(p.playerId)}
                     >
                       Draft

@@ -35,6 +35,8 @@ export function RecommendationPanel({
   draft: DraftState;
 }) {
   const makePick = useAppStore((s) => s.makePick);
+  const liveSync = useAppStore((s) => s.liveSync);
+  const synced = liveSync !== null && liveSync.status !== 'complete';
   const tree = useMemo(
     () => (rec && !draft.complete ? buildDecisionTree(draft, rec) : null),
     [draft, rec],
@@ -86,10 +88,13 @@ export function RecommendationPanel({
             ))}
           </ul>
         )}
-        {userIsOnClock && (
+        {userIsOnClock && !synced && (
           <button className="primary" onClick={() => makePick(best.player.playerId)}>
             Draft {best.player.name}
           </button>
+        )}
+        {userIsOnClock && synced && (
+          <p className="hint">Make this pick in your {liveSync!.sourceLabel} draft room.</p>
         )}
       </div>
 

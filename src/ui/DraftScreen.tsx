@@ -14,6 +14,10 @@ export function DraftScreen() {
   const strategy = useAppStore((s) => s.strategy);
   const undo = useAppStore((s) => s.undo);
   const exitToSetup = useAppStore((s) => s.exitToSetup);
+  const liveSync = useAppStore((s) => s.liveSync);
+  const pauseLiveSync = useAppStore((s) => s.pauseLiveSync);
+  const resumeLiveSync = useAppStore((s) => s.resumeLiveSync);
+  const disconnectLiveSync = useAppStore((s) => s.disconnectLiveSync);
   const [showBoard, setShowBoard] = useState(true);
   const [showStrategy, setShowStrategy] = useState(false);
 
@@ -51,7 +55,43 @@ export function DraftScreen() {
           )}
         </div>
         <div className="draft-actions">
-          <button className="secondary" onClick={undo} disabled={draft.picks.length === 0}>
+          {liveSync && (
+            <span className={`sync-badge ${liveSync.status}`}>
+              <span className="sync-dot" />
+              {liveSync.sourceLabel}:{' '}
+              {liveSync.status === 'polling'
+                ? `live (${liveSync.pickCount} picks)`
+                : liveSync.status === 'paused'
+                  ? 'paused'
+                  : 'complete'}
+              {liveSync.error ? ' · retrying' : ''}
+            </span>
+          )}
+          {liveSync && liveSync.status !== 'complete' && (
+            <button
+              className="secondary"
+              onClick={liveSync.status === 'paused' ? resumeLiveSync : pauseLiveSync}
+            >
+              {liveSync.status === 'paused' ? 'Resume sync' : 'Pause sync'}
+            </button>
+          )}
+          {liveSync && (
+            <button
+              className="secondary"
+              onClick={() => {
+                if (window.confirm('Disconnect the live sync? You can then enter picks manually.')) {
+                  disconnectLiveSync();
+                }
+              }}
+            >
+              Disconnect
+            </button>
+          )}
+          <button
+            className="secondary"
+            onClick={undo}
+            disabled={draft.picks.length === 0 || (liveSync !== null && liveSync.status !== 'complete')}
+          >
             Undo pick
           </button>
           <button className="secondary" onClick={() => setShowStrategy((v) => !v)}>

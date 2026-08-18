@@ -126,14 +126,36 @@ The AI never replaces the math. Language in, structured strategy out; the
 quantitative engine makes every recommendation, and player reads you give
 the AI (targets and avoids) become score nudges, not overrides.
 
+## Live draft sync
+
+Picks can flow in automatically during a real draft. Everything sits
+behind a live-draft adapter (`src/draft/sources/`); the engine never knows
+where picks come from.
+
+- **Sleeper** (native): enter your Sleeper username or paste the draft
+  URL. FootBud reads the draft's own settings (teams, snake/linear,
+  roster slots, scoring, your slot), configures the league to match, and
+  polls the public draft API every few seconds. Picks are matched to your
+  projections by Sleeper player id or name; platform-side corrections are
+  absorbed because every poll rebuilds from the authoritative pick list.
+  Traded picks keep their real owner on the board and rosters.
+- **ESPN** (companion extension, experimental): ESPN has no public draft
+  API, so `extension/` contains a small browser extension that reads the
+  pick feed from the ESPN draft room tab you already have open and relays
+  it to FootBud. See `extension/README.md` for install and status.
+- While synced, manual drafting and undo lock (the platform is the source
+  of truth); pause, resume, and disconnect from the draft header. Players
+  drafted that your projections do not know become zero-point placeholders
+  so the board and rosters stay accurate.
+
 ## Roadmap
 
 1. ~~Manual draft companion with quantitative engine~~ (done)
 2. ~~AI strategy builder, conversational editing, in-draft assistant~~ (done)
 3. ~~Decision tree view with pruned two-pick branches~~ (done; deeper
    3-pick lookahead is a future refinement)
-4. Live draft integrations (ESPN and others) behind a `DraftSource`
-   adapter, so the engine never cares where picks come from
+4. ~~Live draft sync: Sleeper native, ESPN via companion extension~~
+   (done; Yahoo still needs a server)
 
 ## Notes
 
