@@ -191,6 +191,18 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
       cautions.push('You marked this player as overvalued.');
     }
 
+    // Reach discipline: value alone does not justify taking a player far
+    // ahead of where the market drafts him, because a comparable board will
+    // usually offer him (or his tier) later. Grace of ~8 picks, then the
+    // penalty deepens toward 0.55 for two-round reaches.
+    const reach = player.adp - current;
+    if (reach > 8 && Number.isFinite(current)) {
+      score *= clamp(1 - (reach - 8) / 55, 0.55, 1);
+      cautions.push(
+        `Reach: typically drafted around pick ${player.adp.toFixed(0)}, ${Math.round(reach)} picks from now.`,
+      );
+    }
+
     // Strategy rules.
     for (const rule of strategy.rules) {
       if (rule.type === 'limitPosition' && rule.position === player.position) {

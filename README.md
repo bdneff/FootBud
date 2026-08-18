@@ -49,8 +49,8 @@ npm run build     # production build
 - Configure the league: 4-20 teams, snake or linear, your slot, scoring
   preset, full roster slot counts (QB/RB/WR/TE/FLEX/SUPERFLEX/K/DST/bench).
 - Import projections/ADP from CSV, or use the bundled sample data.
-- Pick a strategy preset (Quantitative 1.01 default, Balanced Value, Hero
-  RB, Zero RB, Robust RB, Late-Round QB) and edit weights, position
+- Pick a strategy preset (Probabilistic VOLS 1.01 default, Quantitative
+  1.01, Balanced Value, Hero RB, Zero RB, Robust RB, Late-Round QB) and edit weights, position
   priorities, and rules in the advanced panel.
 - Run the draft by entering every selection; the pool, rosters, and all
   recommendations update after each pick. Undo restores everything.
@@ -72,11 +72,12 @@ independently testable factors:
 | Factor | Meaning |
 | --- | --- |
 | Projection | Projected production, normalized within position |
-| VOR | Projected points minus the replacement-level player at the position, where replacement level derives from league size, starters, flex shares, and bench appetite |
+| VOLS | Calibrated Value Over Last Starter: projected points minus the last starting-quality player at the position (starters plus flex share, never bench), shrunk by each position's historical projection-vs-reality slope (QB 0.67, RB 0.79, WR 0.85, TE 0.72) so exaggerated projected cliffs are not treated as certain |
 | Scarcity | The player's VOR minus the expected best VOR remaining at the position at your next pick (tier drop-off cost of waiting) |
 | Survival urgency | Valuable players unlikely to survive to your next pick score higher; survival is a truncated normal over ADP, conditioned on the player still being available, widened for players the room is fading |
 | Roster need | Open starter slots, then flex, then bench depth appetite |
 | Value vs ADP | Players falling below their market price |
+| Reach discipline | Taking a player far ahead of his market ADP is penalized: value alone does not justify a two-round reach when a comparable board usually offers him later |
 
 A strategy applies weights, position priorities, and rules (wait on QB
 until round N unless exceptional value, cap kickers at one, boost RB in a

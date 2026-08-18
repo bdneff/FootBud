@@ -26,13 +26,13 @@ export function DecisionTreeView({ tree }: { tree: DecisionTree | null }) {
                 <span className="tree-connector">{leaf.outcome === 'survives' ? '├─' : '└─'}</span>
                 {leaf.outcome === 'survives' && leaf.player ? (
                   <span>
-                    {leaf.player.name} survives ({pct(leaf.probability)}) -&gt; take him (VOR{' '}
+                    {leaf.player.name} survives ({pct(leaf.probability)}) -&gt; take him (VOLS{' '}
                     {leaf.value.toFixed(0)})
                   </span>
                 ) : (
                   <span>
                     {branch.target?.name ?? 'Target'} gone ({pct(leaf.probability)}) -&gt; best{' '}
-                    {leaf.fallbackPosition ?? 'available'} expected (VOR {leaf.value.toFixed(0)})
+                    {leaf.fallbackPosition ?? 'available'} expected (VOLS {leaf.value.toFixed(0)})
                   </span>
                 )}
               </div>

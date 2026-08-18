@@ -9,12 +9,14 @@ import type { Player } from '../data/player';
 import { playersByPosition } from '../data/player';
 
 /**
- * Replacement level per position.
+ * Replacement level per position: Value Over Last Starter (VOLS).
  *
- * The replacement player at a position is the best player expected to be
- * freely available on waivers, i.e. ranked just past the number of players
- * at that position that league-wide rosters will absorb. That count depends
- * on league size, dedicated starters, flex allocation, and a bench share.
+ * The baseline at a position is the last STARTING-quality player: ranked
+ * just past the number of starters the league fields there (dedicated slots
+ * plus this position's share of flex/superflex). Bench demand is
+ * deliberately excluded; counting it pushed the baseline several rounds too
+ * deep and inflated the positions with the steepest tails (RB especially),
+ * which over-recommended RBs relative to market.
  */
 
 export interface ReplacementBaseline {
@@ -35,14 +37,20 @@ const FLEX_SHARE: Record<string, number> = { RB: 0.45, WR: 0.45, TE: 0.1 };
 /** Superflex is nearly always used on a QB when the league allows it. */
 const SUPERFLEX_SHARE: Record<string, number> = { QB: 0.85, RB: 0.06, WR: 0.06, TE: 0.03 };
 
-/** Fraction of bench slots spent on each position, roughly league-typical. */
-const BENCH_SHARE: Record<Position, number> = {
-  QB: 0.1,
-  RB: 0.38,
-  WR: 0.38,
-  TE: 0.1,
-  K: 0.02,
-  DST: 0.02,
+/**
+ * Historical calibration of projected vs realized positional separation
+ * (Fantasy Football Analytics, preseason projections 2014-2025): a projected
+ * VOLS gap shrinks by roughly this slope in realized scoring. QB and TE
+ * gaps exaggerate the most. K/DST have no published slope; they get a
+ * conservative value, and it barely matters at their draft cost.
+ */
+export const CALIBRATION_SLOPE: Record<Position, number> = {
+  QB: 0.67,
+  RB: 0.79,
+  WR: 0.85,
+  TE: 0.72,
+  K: 0.6,
+  DST: 0.6,
 };
 
 export function demandCount(config: LeagueConfig, position: Position): number {
@@ -54,7 +62,6 @@ export function demandCount(config: LeagueConfig, position: Position): number {
   if (SUPERFLEX_ELIGIBLE.includes(position)) {
     perTeam += r.SUPERFLEX * (SUPERFLEX_SHARE[position] ?? 0);
   }
-  perTeam += r.BENCH * BENCH_SHARE[position];
   return Math.max(1, Math.round(perTeam * config.numberOfTeams));
 }
 
@@ -83,8 +90,20 @@ export function replacementBaselines(
   return out;
 }
 
-/** Value over replacement for one player given precomputed baselines. */
+/**
+ * Calibrated Value Over Last Starter for one player: the projected gap to
+ * the last starter at the position, shrunk by the position's historical
+ * projection-vs-reality slope so exaggerated projected cliffs (QB and TE
+ * especially) are not treated as certain.
+ */
 export function vor(player: Player, baselines: Map<Position, ReplacementBaseline>): number {
+  const base = baselines.get(player.position);
+  const raw = player.projectedPoints - (base?.replacementPoints ?? 0);
+  return raw * CALIBRATION_SLOPE[player.position];
+}
+
+/** Uncalibrated VOLS, for display and debugging views. */
+export function rawVols(player: Player, baselines: Map<Position, ReplacementBaseline>): number {
   const base = baselines.get(player.position);
   return player.projectedPoints - (base?.replacementPoints ?? 0);
 }

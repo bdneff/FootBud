@@ -88,3 +88,27 @@ describe('recommendations', () => {
     }
   });
 });
+
+describe('reach discipline', () => {
+  it('penalizes taking a player far ahead of his market price', () => {
+    // Two equal WRs except one is priced two rounds later.
+    const pool = syntheticPool().map((p) =>
+      p.playerId === 'wr2' ? { ...p, adp: 40 } : p,
+    );
+    const s = createDraft(league({ userDraftSlot: 1 }), pool);
+    const rec = recommend(s, BALANCED_VALUE);
+    const wr2 = rec.scored.find((sc) => sc.player.playerId === 'wr2')!;
+    expect(wr2.cautions.join(' ')).toMatch(/Reach/);
+    // The same player without the reach must outscore the reach version.
+    const fairPool = syntheticPool();
+    const fair = recommend(createDraft(league({ userDraftSlot: 1 }), fairPool), BALANCED_VALUE);
+    const wr2Fair = fair.scored.find((sc) => sc.player.playerId === 'wr2')!;
+    expect(wr2.score).toBeLessThan(wr2Fair.score);
+  });
+
+  it('ships the probabilistic VOLS preset as the default', async () => {
+    const { DEFAULT_STRATEGY, STRATEGY_PRESETS } = await import('../src/strategy/presets');
+    expect(DEFAULT_STRATEGY.id).toBe('probabilistic-vols-1-01');
+    expect(STRATEGY_PRESETS[0]!.id).toBe('probabilistic-vols-1-01');
+  });
+});

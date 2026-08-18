@@ -41,7 +41,7 @@ export function EngineDetails({ rec }: { rec: Recommendation }) {
               <tr>
                 <th>Pos</th>
                 <th>Best now</th>
-                <th className="num">VOR now</th>
+                <th className="num">VOLS now</th>
                 <th className="num">Expected next</th>
                 <th className="num">Cost</th>
               </tr>

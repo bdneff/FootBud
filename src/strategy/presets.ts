@@ -13,6 +13,40 @@ const LATE_KICKER_DST: StrategyRule[] = [
   { type: 'limitPosition', position: 'DST', max: 1 },
 ];
 
+/**
+ * Encodes the owner's "Probabilistic Draft Strategy from the 1.01" document
+ * (12-team half PPR): calibrated VOLS cliffs over raw rank, take the value
+ * hardest to replace before the next turn, QB allowed from round 2 only
+ * when the elite QB actually falls (the calibrated VOLS and survival terms
+ * decide that on the live board), elite TE treated as a real tier, no
+ * reaching, K/DST last.
+ */
+export const PROBABILISTIC_1_01: DraftStrategy = {
+  id: 'probabilistic-vols-1-01',
+  name: 'Probabilistic VOLS 1.01',
+  description:
+    'Board-conditional strategy for a 12-team half-PPR snake from the 1.01. Drafts the cliff, not the rank: calibrated value over the last starter, the cost of waiting until your next turn, and survival odds decide each pick. Take the value that is hardest to replace before your next turn.',
+  weights: {
+    projection: 0.12,
+    vor: 0.3,
+    scarcity: 0.24,
+    survival: 0.16,
+    rosterNeed: 0.06,
+    upside: 0.12,
+  },
+  positionPriorities: { RB: 'high', WR: 'high', TE: 'normal', QB: 'patient', K: 'avoid', DST: 'avoid' },
+  rules: [
+    // Round 1 is never a QB; from the 24/25 turn on, the calibrated VOLS
+    // and survival math decide whether a falling elite QB is the pick.
+    { type: 'avoidPositionBefore', position: 'QB', round: 2, penalty: 0.4 },
+    { type: 'limitPosition', position: 'QB', max: 2 },
+    { type: 'limitPosition', position: 'TE', max: 2 },
+    ...LATE_KICKER_DST,
+  ],
+  riskTolerance: 'balanced',
+  playerNotes: [],
+};
+
 export const QUANT_1_01: DraftStrategy = {
   id: 'quant-12-team-1-01',
   name: 'Quantitative 12-team 1.01',
@@ -154,6 +188,7 @@ export const LATE_ROUND_QB: DraftStrategy = {
 };
 
 export const STRATEGY_PRESETS: DraftStrategy[] = [
+  PROBABILISTIC_1_01,
   QUANT_1_01,
   BALANCED_VALUE,
   HERO_RB,
@@ -162,4 +197,4 @@ export const STRATEGY_PRESETS: DraftStrategy[] = [
   LATE_ROUND_QB,
 ];
 
-export const DEFAULT_STRATEGY = QUANT_1_01;
+export const DEFAULT_STRATEGY = PROBABILISTIC_1_01;

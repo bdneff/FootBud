@@ -17,7 +17,7 @@ function AltRow({ alt }: { alt: ScoredPlayer }) {
         <span className="alt-score">{alt.score.toFixed(0)}</span>
       </div>
       <div className="alt-detail">
-        <span>VOR {alt.vorValue.toFixed(0)}</span>
+        <span>VOLS {alt.vorValue.toFixed(0)}</span>
         <span>{(alt.survivalToNextPick * 100).toFixed(0)}% survives</span>
         {alt.tier !== undefined && <span>Tier {alt.tier}</span>}
       </div>
@@ -66,7 +66,7 @@ export function RecommendationPanel({
           <div>
             <div className="best-name">{best.player.name}</div>
             <div className="best-meta">
-              {best.player.team} · VOR {best.vorValue.toFixed(0)}
+              {best.player.team} · VOLS {best.vorValue.toFixed(0)}
               {best.tier !== undefined ? ` · Tier ${best.tier}` : ''}
             </div>
           </div>

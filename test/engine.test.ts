@@ -107,3 +107,24 @@ describe('roster need', () => {
     expect(rosterNeed('K', { QB: 1, RB: 4, WR: 4, TE: 1, K: 1, DST: 1 }, roster)).toBe(0);
   });
 });
+
+describe('VOLS calibration (probabilistic strategy doc)', () => {
+  it('uses a starters-only baseline: bench size never moves it', () => {
+    const withBench = league();
+    const noBench = league({ roster: { ...withBench.roster, BENCH: 0 } });
+    expect(demandCount(withBench, 'RB')).toBe(demandCount(noBench, 'RB'));
+    expect(demandCount(withBench, 'QB')).toBe(demandCount(noBench, 'QB'));
+  });
+
+  it('shrinks projected gaps by the historical position slope', async () => {
+    const { rawVols, CALIBRATION_SLOPE } = await import('../src/engine/replacement');
+    const pool = syntheticPool();
+    const baselines = replacementBaselines(league(), pool);
+    const qb = pool.find((p) => p.playerId === 'qb1')!;
+    const wr = pool.find((p) => p.playerId === 'wr1')!;
+    expect(vor(qb, baselines)).toBeCloseTo(rawVols(qb, baselines) * CALIBRATION_SLOPE.QB, 6);
+    expect(vor(wr, baselines)).toBeCloseTo(rawVols(wr, baselines) * CALIBRATION_SLOPE.WR, 6);
+    // QB gaps shrink harder than WR gaps.
+    expect(CALIBRATION_SLOPE.QB).toBeLessThan(CALIBRATION_SLOPE.WR);
+  });
+});
