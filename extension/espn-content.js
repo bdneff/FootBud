@@ -105,12 +105,71 @@ function parseRow(row, index) {
   return { overall, slot: 0, playerName: name, position, team };
 }
 
+// ---- Announcement capture ----------------------------------------------
+// ESPN shows every completed pick as a card in the pickArea:
+//   <div class="player-drafted"> "You drafted Ja'Marr Chase!" /
+//   "Shyte Mate drafted Bijan Robinson!" with "Cincinnati Bengals / WR"
+// in a child <p>. Cards are transient, so each one is captured as it
+// appears, numbered from the "On the Clock: Pick N" counter, and the
+// accumulated list persists in sessionStorage across page refreshes.
+// This works with no history tab open; row-based history, when visible,
+// stays preferred because it is authoritative.
+
+const STORE_KEY = 'footbud-captured-picks:' + location.search;
+let captured = {};
+try {
+  captured = JSON.parse(sessionStorage.getItem(STORE_KEY) || '{}');
+} catch {
+  captured = {};
+}
+
+function currentClockPick() {
+  const el = document.querySelector('[class*="current-pick"]');
+  const m = el && (el.textContent || '').match(/Pick\s*(\d+)/i);
+  return m ? Number(m[1]) : null;
+}
+
+function captureAnnouncements() {
+  const cards = document.querySelectorAll('[class*="player-drafted"], [class*="playerDrafted"]');
+  for (const card of cards) {
+    const text = (card.textContent || '').replace(/\s+/g, ' ').trim();
+    const m = text.match(/drafted\s+(.+?)!/i);
+    if (!m) continue;
+    let name = m[1].trim().replace(/\s*D\/ST\s*$/i, ' DST');
+    if (!name) continue;
+    if (Object.values(captured).some((p) => p.playerName === name)) continue;
+
+    let position = null;
+    let team = null;
+    const meta = card.querySelector('p');
+    const metaText = meta ? (meta.textContent || '').replace(/\s+/g, ' ').trim() : '';
+    const pm = (metaText || text).match(POSITION_RE);
+    if (pm) position = pm[1] === 'D/ST' ? 'DST' : pm[1];
+    if (metaText.includes('/')) team = metaText.split('/')[0].trim();
+
+    // The card announces the pick made just before the one now on the clock.
+    const clock = currentClockPick();
+    const lastCaptured = Math.max(0, ...Object.keys(captured).map(Number));
+    let overall = clock !== null ? clock - 1 : lastCaptured + 1;
+    if (overall < 1) overall = 1;
+    if (captured[overall]) overall = lastCaptured + 1; // clock raced ahead
+    captured[overall] = { overall, slot: 0, playerName: name, position, team };
+    try {
+      sessionStorage.setItem(STORE_KEY, JSON.stringify(captured));
+    } catch {
+      // Storage full or unavailable: in-memory capture still works.
+    }
+    log('captured announcement:', overall, name, position ?? '?');
+  }
+}
+
 let lastSent = '';
 let lastEmptyLog = 0;
 
 function scan() {
+  captureAnnouncements();
   const rows = findPickRows();
-  if (DEBUG && rows.length === 0 && Date.now() - lastEmptyLog > 15000) {
+  if (DEBUG && rows.length === 0 && Object.keys(captured).length === 0 && Date.now() - lastEmptyLog > 15000) {
     lastEmptyLog = Date.now();
     // Fingerprint wherever drafted players actually render: small elements
     // whose text carries a position token, with their ancestor chain, so the
@@ -130,7 +189,7 @@ function scan() {
       hits.push(`${chain} :: "${text.slice(0, 60)}"`);
     }
     if (hits.length === 0) {
-      log('no drafted players visible in the page yet. If picks HAVE been made, open the Pick History tab in the draft room so ESPN renders them.');
+      log('no drafted players visible in the page yet. If picks HAVE been made, picks will be captured from the announcement cards as they appear; earlier picks made before the extension loaded cannot be recovered — refresh guidance: start the extension before the draft begins.');
     } else {
       log('found player-like elements but no selector matched their rows. Paste this diagnostic:\n' + hits.join('\n'));
     }
@@ -150,6 +209,9 @@ function scan() {
   picks.sort((a, b) => a.overall - b.overall);
   // Deduplicate by overall (some layouts render a row twice).
   picks = picks.filter((p, i, arr) => i === 0 || arr[i - 1].overall !== p.overall);
+  // No visible history rows: fall back to the accumulated announcements.
+  const announced = Object.values(captured).sort((a, b) => a.overall - b.overall);
+  if (picks.length < announced.length) picks = announced;
   if (picks.length === 0) return;
   const fingerprint = JSON.stringify(picks.map((p) => [p.overall, p.playerName]));
   if (fingerprint === lastSent) return;
