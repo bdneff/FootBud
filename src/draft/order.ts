@@ -51,3 +51,22 @@ export function nextPickForSlot(
   }
   return null;
 }
+
+/**
+ * How many picks in [from, to) belong to OPPONENTS of the given slot. Only
+ * opponent picks can take a player away from you, so availability math must
+ * advance by this count, not by raw pick distance. At a snake turn (you own
+ * picks 24 and 25) the answer is zero: everyone survives to your next pick.
+ */
+export function opponentPicksBetween(
+  config: LeagueConfig,
+  slot: number,
+  from: number,
+  to: number,
+): number {
+  let count = 0;
+  for (let overall = Math.max(1, from); overall < to; overall++) {
+    if (slotOnClock(overall, config.numberOfTeams, config.draftType) !== slot) count++;
+  }
+  return count;
+}

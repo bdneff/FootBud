@@ -27,14 +27,21 @@ export const PROBABILISTIC_1_01: DraftStrategy = {
   description:
     'Board-conditional strategy for a 12-team half-PPR snake from the 1.01. Drafts the cliff, not the rank: calibrated value over the last starter, the cost of waiting until your next turn, and survival odds decide each pick. Take the value that is hardest to replace before your next turn.',
   weights: {
+    // Scarcity (the cost of waiting) outweighs raw VOLS on purpose: steep
+    // positional curves hand every mid-tier RB a fat static VOLS, but a
+    // player on a flat shelf of equals has almost no drop-off, while the
+    // last of a tier does. Drop-off is the dynamic, board-aware value.
     projection: 0.12,
-    vor: 0.3,
-    scarcity: 0.24,
+    vor: 0.24,
+    scarcity: 0.3,
     survival: 0.16,
     rosterNeed: 0.06,
     upside: 0.12,
   },
-  positionPriorities: { RB: 'high', WR: 'high', TE: 'normal', QB: 'patient', K: 'avoid', DST: 'avoid' },
+  // QB is 'normal', not 'patient': the calibration slope (0.67) already
+  // applies the historical QB skepticism; stacking a priority penalty on
+  // top double-counted it and buried a falling elite QB at the turn.
+  positionPriorities: { RB: 'high', WR: 'high', TE: 'normal', QB: 'normal', K: 'avoid', DST: 'avoid' },
   rules: [
     // Round 1 is never a QB; from the 24/25 turn on, the calibrated VOLS
     // and survival math decide whether a falling elite QB is the pick.

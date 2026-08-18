@@ -1,6 +1,7 @@
 import type { Position } from '../config/league';
 import type { Player } from '../data/player';
 import type { DraftState } from '../draft/state';
+import { opponentPicksBetween } from '../draft/order';
 import type { Recommendation } from './recommend';
 import { vor } from './replacement';
 import { expectedBestVorAtPick } from './scarcity';
@@ -73,12 +74,19 @@ export function buildDecisionTree(
   const userOnClock = state.slotOnClock === state.config.userDraftSlot;
   const decidingPick = userOnClock ? state.currentPick : state.nextUserPick;
   // In both cases the follow-up is the user pick after the one being decided.
-  const followUpPick = rec.userPickAfterNext;
+  const displayFollowUp = rec.userPickAfterNext;
   if (decidingPick === null) return null;
 
   const current = state.currentPick;
   const available = state.availablePlayers;
   const baselines = rec.baselines;
+  // Availability math advances only when opponents pick: at a snake turn the
+  // follow-up is guaranteed and every survival below becomes 1.
+  const followUpPick =
+    displayFollowUp === null
+      ? null
+      : current +
+        opponentPicksBetween(state.config, state.config.userDraftSlot, current, displayFollowUp);
 
   const branches: TreeBranch[] = rootCandidates(rec).map((pickNow) => {
     const pickNowVor = vor(pickNow, baselines);
@@ -152,5 +160,7 @@ export function buildDecisionTree(
   });
 
   branches.sort((a, b) => b.expectedValue - a.expectedValue);
-  return { decidingPick, followUpPick, branches };
+  // The display field carries the real pick number; the compressed horizon
+  // was only for the availability math above.
+  return { decidingPick, followUpPick: displayFollowUp, branches };
 }

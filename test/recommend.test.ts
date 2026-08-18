@@ -112,3 +112,57 @@ describe('reach discipline', () => {
     expect(STRATEGY_PRESETS[0]!.id).toBe('probabilistic-vols-1-01');
   });
 });
+
+describe('turn awareness (back-to-back picks)', () => {
+  it('everyone survives to your next pick when no opponent picks in between', () => {
+    // Slot 12 of 12 owns picks 12 and 13: zero opponents between them.
+    const pool = syntheticPool();
+    let s = createDraft(league({ userDraftSlot: 12 }), pool);
+    for (let i = 0; i < 11; i++) s = applyPick(s, s.availablePlayers[0]!.playerId);
+    expect(s.slotOnClock).toBe(12);
+    const rec = recommend(s, BALANCED_VALUE);
+    for (const sc of rec.scored.slice(0, 10)) {
+      expect(sc.survivalToNextPick).toBe(1);
+      expect(sc.cautions.join(' ')).not.toMatch(/you could wait/);
+    }
+  });
+
+  it('counts only opponent picks toward the horizon off the turn', async () => {
+    const { opponentPicksBetween } = await import('../src/draft/order');
+    const cfg = league({ numberOfTeams: 12, userDraftSlot: 1 });
+    // From pick 1 (user's own) to pick 24: picks 2..23 are all opponents.
+    expect(opponentPicksBetween(cfg, 1, 1, 24)).toBe(22);
+    // At the turn: pick 24 to 25 for slot 12... for slot 1, picks 24 and 25
+    // are both the user's, so zero opponents in [24, 25).
+    expect(opponentPicksBetween(cfg, 1, 24, 25)).toBe(0);
+    expect(opponentPicksBetween(cfg, 12, 12, 13)).toBe(0);
+  });
+
+  it('decision tree leaves are certainties at the turn', async () => {
+    const { buildDecisionTree } = await import('../src/engine/decisionTree');
+    const pool = syntheticPool();
+    let s = createDraft(league({ userDraftSlot: 12 }), pool);
+    for (let i = 0; i < 11; i++) s = applyPick(s, s.availablePlayers[0]!.playerId);
+    const rec = recommend(s, BALANCED_VALUE);
+    const tree = buildDecisionTree(s, rec)!;
+    expect(tree.followUpPick).toBe(13);
+    for (const branch of tree.branches) {
+      const survives = branch.leaves.find((l) => l.outcome === 'survives');
+      if (survives) expect(survives.probability).toBe(1);
+    }
+  });
+
+  it('scales the reach penalty by rounds, not raw picks', () => {
+    // An 11-pick reach in round 2 of a 12-teamer must be penalized.
+    const pool = syntheticPool().map((p) =>
+      p.playerId === 'wr3' ? { ...p, adp: 25 } : p,
+    );
+    let s = createDraft(league({ userDraftSlot: 1 }), pool);
+    s = applyPick(s, 'rb1');
+    for (let i = 0; i < 11; i++) s = applyPick(s, s.availablePlayers[0]!.playerId);
+    // Current pick 13; wr3 priced at 25 -> a ~1 round reach.
+    const rec = recommend(s, BALANCED_VALUE);
+    const wr3 = rec.scored.find((sc) => sc.player.playerId === 'wr3');
+    if (wr3) expect(wr3.cautions.join(' ')).toMatch(/Reach/);
+  });
+});

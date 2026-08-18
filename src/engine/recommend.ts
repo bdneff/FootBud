@@ -2,6 +2,7 @@ import { PLAYER_POSITIONS, type Position } from '../config/league';
 import type { Player } from '../data/player';
 import type { DraftState } from '../draft/state';
 import { userRoster } from '../draft/state';
+import { opponentPicksBetween } from '../draft/order';
 import type { DraftStrategy } from '../strategy/types';
 import { AVOID_MULTIPLIER, PRIORITY_MULTIPLIER, TARGET_MULTIPLIER } from '../strategy/types';
 import { resolvePlayerNotes } from '../strategy/playerMatch';
@@ -102,8 +103,16 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
 
   // The horizon for survival/scarcity: the user's NEXT pick after the one on
   // the clock now (when the user is on the clock, that's userPickAfterNext).
-  const horizon =
+  const displayHorizon =
     state.slotOnClock === state.config.userDraftSlot ? userPickAfterNext : nextUserPick;
+  // Only opponent picks can take players away, so all availability math runs
+  // on an opponent-compressed horizon. At a snake turn (you own back-to-back
+  // picks) zero opponents pick in between and everyone survives.
+  const oppPicksToHorizon =
+    displayHorizon === null
+      ? null
+      : opponentPicksBetween(state.config, state.config.userDraftSlot, current, displayHorizon);
+  const horizon = oppPicksToHorizon === null ? null : current + oppPicksToHorizon;
 
   const candidates = candidateSet(available, baselines);
 
@@ -193,13 +202,14 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
 
     // Reach discipline: value alone does not justify taking a player far
     // ahead of where the market drafts him, because a comparable board will
-    // usually offer him (or his tier) later. Grace of ~8 picks, then the
-    // penalty deepens toward 0.55 for two-round reaches.
-    const reach = player.adp - current;
-    if (reach > 8 && Number.isFinite(current)) {
-      score *= clamp(1 - (reach - 8) / 55, 0.55, 1);
+    // usually offer him (or his tier) later. Measured in rounds so an
+    // 11-pick reach in round 2 stings as much as a 30-pick reach in round 8:
+    // grace of half a round, then down to 0.5 by about a 2.5-round reach.
+    const reachRounds = (player.adp - current) / state.config.numberOfTeams;
+    if (reachRounds > 0.5 && Number.isFinite(current)) {
+      score *= clamp(1 - (reachRounds - 0.5) / 2, 0.5, 1);
       cautions.push(
-        `Reach: typically drafted around pick ${player.adp.toFixed(0)}, ${Math.round(reach)} picks from now.`,
+        `Reach: typically drafted around pick ${player.adp.toFixed(0)}, ${Math.round(player.adp - current)} picks from now.`,
       );
     }
 
@@ -256,7 +266,7 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
     }
     if (horizon !== null && surv < 0.35) {
       reasons.push(
-        `Only ${(surv * 100).toFixed(0)}% chance of surviving to your next pick (${horizon}).`,
+        `Only ${(surv * 100).toFixed(0)}% chance of surviving to your next pick (${displayHorizon}).`,
       );
     }
     if (components.rosterNeed >= 1) reasons.push(`Fills an open ${player.position} starter slot.`);
@@ -264,12 +274,14 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
     if (rawUpside[i]! >= 8) {
       reasons.push(`Falling value: typically drafted around pick ${player.adp.toFixed(0)}.`);
     }
-    if (horizon !== null && surv > 0.7) {
+    // "You could wait" only makes sense when opponents actually pick before
+    // your next turn; at a back-to-back turn both picks are yours anyway.
+    if (horizon !== null && oppPicksToHorizon !== null && oppPicksToHorizon > 0 && surv > 0.7) {
       cautions.push(
         `${(surv * 100).toFixed(0)}% likely to still be available at your next pick, so you could wait.`,
       );
     }
-    if (rawDrop[i]! < 0) {
+    if (rawDrop[i]! < 0 && (oppPicksToHorizon ?? 0) > 0) {
       cautions.push('A comparable player at this position will probably still be there next turn.');
     }
     if (rawNeed[i]! < 0.2) {
