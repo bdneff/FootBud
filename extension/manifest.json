@@ -10,6 +10,12 @@
   "content_scripts": [
     {
       "matches": ["https://fantasy.espn.com/*"],
+      "js": ["espn-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://fantasy.espn.com/*"],
       "js": ["espn-content.js"],
       "run_at": "document_idle"
     },

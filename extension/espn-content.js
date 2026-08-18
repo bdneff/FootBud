@@ -227,7 +227,58 @@ function detectTeams() {
   if (headers.length > 2) window.__footbudTeams = headers.length - 1;
 }
 
-const observer = new MutationObserver(() => {
+// ---- Discovery probes ---------------------------------------------------
+// Opponent and autodraft picks do not produce the "You drafted" card, so
+// two probes find where they DO surface:
+// 1. WebSocket tap (espn-main.js wraps the page's WebSocket and forwards
+//    message samples): every pick must arrive through the socket.
+// 2. DOM sniffer: logs any newly added element whose text carries a player
+//    position, the moment it appears.
+// Paste the [footbud-bridge] ws/new-element lines that show up right after
+// an opponent's pick; they are the calibration data for a full parser.
+
+let wsLogCount = 0;
+let wsLogWindowStart = 0;
+document.addEventListener('footbud-ws-message', (event) => {
+  if (!DEBUG) return;
+  const detail = event.detail || {};
+  const now = Date.now();
+  if (now - wsLogWindowStart > 10000) {
+    wsLogWindowStart = now;
+    wsLogCount = 0;
+  }
+  if (wsLogCount >= 20) return; // cap the flood; samples are what matter
+  wsLogCount++;
+  log('ws:', String(detail.url || ''), '::', String(detail.data || ''));
+});
+
+const sniffSeen = new Set();
+function sniffMutations(mutations) {
+  if (!DEBUG) return;
+  let logged = 0;
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (logged >= 3) return;
+      if (!(node instanceof HTMLElement)) continue;
+      const text = (node.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length < 4 || text.length > 180 || !POSITION_RE.test(text)) continue;
+      const key = text.slice(0, 60);
+      if (sniffSeen.has(key)) continue;
+      sniffSeen.add(key);
+      let chain = `${node.tagName}.${String(node.className).slice(0, 40)}`;
+      let parent = node.parentElement;
+      for (let depth = 0; parent && depth < 3; depth++) {
+        chain = `${parent.tagName}.${String(parent.className).slice(0, 40)} > ${chain}`;
+        parent = parent.parentElement;
+      }
+      log('new element:', chain, '::', text.slice(0, 140));
+      logged++;
+    }
+  }
+}
+
+const observer = new MutationObserver((mutations) => {
+  sniffMutations(mutations);
   detectTeams();
   scan();
 });
