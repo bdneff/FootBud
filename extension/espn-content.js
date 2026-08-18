@@ -24,24 +24,37 @@ function log(...args) {
 // team-name rows and the upcoming "pick train" are ignored.
 function findPickRows() {
   const selectors = [
-    'li[class*="picklist--pick"]',
-    '[class*="picklist"] li',
     '[class*="pick-history"] li',
     '[class*="pick-history"] tr',
+    '[class*="pickHistory"] li',
     '[class*="pickHistory"] tr',
+    '[class*="history"] li',
+    '[class*="history"] tr',
+    'li[class*="picklist--pick"]',
+    '[class*="picklist"] li',
     '[class*="draft-history"] tr',
+    '[class*="pick-cell"]',
+    '[class*="pickCell"]',
     'table tr',
   ];
+  const PICK_NUMBER_RE = /PICK\s*\d+|R(?:ND)?\s*\d+\s*,?\s*P(?:ICK)?\s*\d+|^\s*\d+\.\d+/i;
   for (const selector of selectors) {
     const rows = [...document.querySelectorAll(selector)].filter(
       (row) =>
         row.querySelector('[class*="playername"], [class*="playerName"]') ||
         POSITION_RE.test(row.textContent || ''),
     );
-    if (rows.length > 0) {
-      log(`selector "${selector}" matched ${rows.length} rows`);
-      return rows;
+    if (rows.length === 0) continue;
+    // Real pick rows carry pick numbering somewhere; the available-players
+    // list (also full of names and positions) does not. Skip selectors
+    // whose rows never show a pick number so we never mistake the player
+    // pool for the pick history.
+    if (!rows.some((row) => PICK_NUMBER_RE.test(row.textContent || ''))) {
+      log(`selector "${selector}" matched ${rows.length} rows but none carry pick numbers; skipping`);
+      continue;
     }
+    log(`selector "${selector}" matched ${rows.length} rows`);
+    return rows;
   }
   return [];
 }
@@ -99,11 +112,28 @@ function scan() {
   const rows = findPickRows();
   if (DEBUG && rows.length === 0 && Date.now() - lastEmptyLog > 15000) {
     lastEmptyLog = Date.now();
-    log('no pick rows matched yet. If picks have been made, copy this diagnostic for calibration:');
-    const sample = [...document.querySelectorAll('table, [class*="pick"], [class*="Pick"], [class*="history"]')]
-      .slice(0, 5)
-      .map((el) => `${el.tagName}.${String(el.className).slice(0, 80)} :: ${(el.textContent || '').replace(/\s+/g, ' ').slice(0, 120)}`);
-    log(sample);
+    // Fingerprint wherever drafted players actually render: small elements
+    // whose text carries a position token, with their ancestor chain, so the
+    // right selector can be written no matter what ESPN calls the container.
+    const hits = [];
+    for (const el of document.querySelectorAll('body *')) {
+      if (hits.length >= 8) break;
+      if (el.children.length > 2) continue;
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text.length < 3 || text.length > 60 || !POSITION_RE.test(text)) continue;
+      let chain = `${el.tagName}.${String(el.className).slice(0, 50)}`;
+      let node = el.parentElement;
+      for (let depth = 0; node && depth < 4; depth++) {
+        chain = `${node.tagName}.${String(node.className).slice(0, 50)} > ${chain}`;
+        node = node.parentElement;
+      }
+      hits.push(`${chain} :: "${text.slice(0, 60)}"`);
+    }
+    if (hits.length === 0) {
+      log('no drafted players visible in the page yet. If picks HAVE been made, open the Pick History tab in the draft room so ESPN renders them.');
+    } else {
+      log('found player-like elements but no selector matched their rows. Paste this diagnostic:\n' + hits.join('\n'));
+    }
   }
   if (DEBUG && rows.length > 0) {
     log('sample row texts:', rows.slice(0, 3).map((r) => (r.textContent || '').replace(/\s+/g, ' ').slice(0, 100)));
