@@ -14,7 +14,11 @@ import {
 import { DEFAULT_STRATEGY, STRATEGY_PRESETS } from './strategy/presets';
 import { DraftStrategySchema, type DraftStrategy } from './strategy/types';
 
+import { AnthropicProvider } from './ai/anthropic';
+import type { AIProvider } from './ai/provider';
+
 const SAVE_KEY = 'footbud.save.v1';
+const AI_KEY = 'footbud.ai.v1';
 
 export interface AppState {
   phase: 'setup' | 'draft';
@@ -24,16 +28,40 @@ export interface AppState {
   strategy: DraftStrategy;
   draft: DraftState | null;
   lastError: string | null;
+  aiApiKey: string;
 
   setConfig: (config: LeagueConfig) => void;
   setPlayers: (players: Player[], sourceName: string) => void;
   setStrategy: (strategy: DraftStrategy) => void;
+  setAiApiKey: (key: string) => void;
   startDraft: () => void;
   makePick: (playerId: string) => void;
   undo: () => void;
   exitToSetup: () => void;
   dismissError: () => void;
   loadSavedDraft: () => boolean;
+}
+
+function loadAiKey(): string {
+  try {
+    const raw = localStorage.getItem(AI_KEY);
+    if (!raw) return '';
+    return (JSON.parse(raw) as { apiKey?: string }).apiKey ?? '';
+  } catch {
+    return '';
+  }
+}
+
+let cachedProvider: { key: string; provider: AIProvider } | null = null;
+
+/** The active AI provider, or null when no API key is configured. */
+export function getAiProvider(): AIProvider | null {
+  const key = useAppStore.getState().aiApiKey.trim();
+  if (!key) return null;
+  if (!cachedProvider || cachedProvider.key !== key) {
+    cachedProvider = { key, provider: new AnthropicProvider(key) };
+  }
+  return cachedProvider.provider;
 }
 
 export function hasSavedDraft(): boolean {
@@ -64,10 +92,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   strategy: DEFAULT_STRATEGY,
   draft: null,
   lastError: null,
+  aiApiKey: loadAiKey(),
 
   setConfig: (config) => set({ config }),
   setPlayers: (players, playerSourceName) => set({ players, playerSourceName }),
   setStrategy: (strategy) => set({ strategy }),
+  setAiApiKey: (aiApiKey) => {
+    try {
+      localStorage.setItem(AI_KEY, JSON.stringify({ apiKey: aiApiKey }));
+    } catch {
+      // Storage unavailable: the key still works for this session.
+    }
+    set({ aiApiKey });
+  },
 
   startDraft: () => {
     const { config, players, strategy } = get();

@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
 import { recommend } from '../engine/recommend';
 import { useAppStore } from '../store';
+import { AskAi } from './AskAi';
 import { AvailablePlayers } from './AvailablePlayers';
 import { DraftBoard } from './DraftBoard';
+import { Logo } from './Logo';
 import { RecommendationPanel } from './RecommendationPanel';
 import { RosterPanel } from './RosterPanel';
 import { StrategyEditor } from './StrategyEditor';
@@ -28,6 +30,7 @@ export function DraftScreen() {
     <div className="draft-screen">
       <header className="draft-header">
         <div className="draft-status">
+          <Logo height={30} />
           <strong>{draft.config.leagueName}</strong>
           {draft.complete ? (
             <span className="on-clock">Draft complete</span>
@@ -82,6 +85,7 @@ export function DraftScreen() {
         </section>
         <section className="panel roster-panel">
           <RosterPanel draft={draft} />
+          <AskAi draft={draft} rec={rec} />
         </section>
       </div>
 

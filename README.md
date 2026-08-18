@@ -77,6 +77,7 @@ src/data       player model, CSV import, sample projections
 src/draft      draft order, draft state, rosters, undo, save/load
 src/engine     VOR, tiers, scarcity, survival, roster need, recommendation
 src/strategy   strategy schema, presets
+src/ai         AI provider abstraction, Anthropic implementation, prompts
 src/ui         React components (setup, draft screen, board, panels)
 test           vitest suite for order, state, engine, import, sample data
 ```
@@ -84,13 +85,37 @@ test           vitest suite for order, state, engine, import, sample data
 The engine consumes `DraftState`, never UI state, and is fully testable
 without rendering anything.
 
+## AI features
+
+FootBud has an AI layer powered by the Claude API. Add your own Anthropic
+API key in the AI section of the setup screen; it is stored only in your
+browser and sent only to the Claude API.
+
+- **Build a strategy with AI**: a short guided interview. It asks what you
+  value most, how long you are willing to wait at each position, which
+  players you think are undervalued or overvalued, and where you draft
+  from. It then produces a structured strategy and shows you its
+  interpretation before you apply it.
+- **Upload a strategy**: drop in a .txt, .md, or .pdf strategy write-up
+  and it gets extracted into the same structured format, with the
+  interpretation shown for confirmation.
+- **Adjust with AI**: plain-language edits to the active strategy ("no QB
+  before round 6", "be more aggressive on WR early") with a shown diff of
+  exactly what changed.
+- **Ask AI during the draft**: a panel that answers questions like "why
+  this pick over the highest-ranked player" or "what if I wait on TE".
+  It receives the engine's actual numbers (scores, VOR, survival
+  probabilities, tier info, wait costs, your strategy) and explains them.
+
+The AI never replaces the math. Language in, structured strategy out; the
+quantitative engine makes every recommendation, and player reads you give
+the AI (targets and avoids) become score nudges, not overrides.
+
 ## Roadmap
 
-1. ~~Manual draft companion with quantitative engine~~ (this MVP)
-2. Deeper multi-pick decision trees with pruning
-3. AI strategy builder: describe a strategy in plain language or upload a
-   document; conversational strategy editing; during-draft "Ask AI" panel
-   that explains the engine's numbers (the AI never replaces the math)
+1. ~~Manual draft companion with quantitative engine~~ (done)
+2. ~~AI strategy builder, conversational editing, in-draft assistant~~ (done)
+3. Deeper multi-pick decision trees with pruning
 4. Live draft integrations (ESPN and others) behind a `DraftSource`
    adapter, so the engine never cares where picks come from
 

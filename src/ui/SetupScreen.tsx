@@ -10,6 +10,8 @@ import {
 import { parsePlayersCsv } from '../data/importCsv';
 import { SAMPLE_SOURCE_NAME, samplePlayers } from '../data/sampleData';
 import { hasSavedDraft, useAppStore } from '../store';
+import { AiKeySettings, AiStrategyBuilder } from './AiStrategyBuilder';
+import { Logo } from './Logo';
 import { StrategyEditor } from './StrategyEditor';
 
 const TEAM_COUNTS = [8, 10, 12, 14, 16];
@@ -63,7 +65,8 @@ export function SetupScreen() {
   return (
     <div className="setup">
       <header className="setup-header">
-        <h1>FootBud</h1>
+        <h1 className="visually-hidden">FootBud</h1>
+        <Logo height={44} />
         <p className="tagline">
           Given the current draft state, who should you take now, and what are you risking by
           waiting?
@@ -219,7 +222,11 @@ export function SetupScreen() {
           )}
 
           <h2>Strategy</h2>
+          <AiStrategyBuilder />
           <StrategyEditor />
+
+          <h2>AI</h2>
+          <AiKeySettings />
         </section>
       </div>
 

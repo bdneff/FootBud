@@ -34,6 +34,7 @@ export const QUANT_1_01: DraftStrategy = {
     ...LATE_KICKER_DST,
   ],
   riskTolerance: 'balanced',
+  playerNotes: [],
 };
 
 export const BALANCED_VALUE: DraftStrategy = {
@@ -55,6 +56,7 @@ export const BALANCED_VALUE: DraftStrategy = {
     ...LATE_KICKER_DST,
   ],
   riskTolerance: 'balanced',
+  playerNotes: [],
 };
 
 export const HERO_RB: DraftStrategy = {
@@ -78,6 +80,7 @@ export const HERO_RB: DraftStrategy = {
     ...LATE_KICKER_DST,
   ],
   riskTolerance: 'aggressive',
+  playerNotes: [],
 };
 
 export const ZERO_RB: DraftStrategy = {
@@ -101,6 +104,7 @@ export const ZERO_RB: DraftStrategy = {
     ...LATE_KICKER_DST,
   ],
   riskTolerance: 'aggressive',
+  playerNotes: [],
 };
 
 export const ROBUST_RB: DraftStrategy = {
@@ -123,6 +127,7 @@ export const ROBUST_RB: DraftStrategy = {
     ...LATE_KICKER_DST,
   ],
   riskTolerance: 'conservative',
+  playerNotes: [],
 };
 
 export const LATE_ROUND_QB: DraftStrategy = {
@@ -145,6 +150,7 @@ export const LATE_ROUND_QB: DraftStrategy = {
     ...LATE_KICKER_DST,
   ],
   riskTolerance: 'balanced',
+  playerNotes: [],
 };
 
 export const STRATEGY_PRESETS: DraftStrategy[] = [

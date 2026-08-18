@@ -56,6 +56,21 @@ export const StrategyRuleSchema = z.discriminatedUnion('type', [
 ]);
 export type StrategyRule = z.infer<typeof StrategyRuleSchema>;
 
+/**
+ * A personal read on one player: target players you believe the market
+ * undervalues, avoid players you believe it overvalues. The engine nudges
+ * the recommendation score, it does not blindly obey.
+ */
+export const PlayerNoteSchema = z.object({
+  name: z.string().min(1),
+  stance: z.enum(['target', 'avoid']),
+  reason: z.string().optional(),
+});
+export type PlayerNote = z.infer<typeof PlayerNoteSchema>;
+
+export const TARGET_MULTIPLIER = 1.15;
+export const AVOID_MULTIPLIER = 0.75;
+
 export const DraftStrategySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -64,6 +79,7 @@ export const DraftStrategySchema = z.object({
   positionPriorities: z.record(z.enum(PLAYER_POSITIONS), PositionPrioritySchema),
   rules: z.array(StrategyRuleSchema),
   riskTolerance: z.enum(['conservative', 'balanced', 'aggressive']),
+  playerNotes: z.array(PlayerNoteSchema).default([]),
 });
 export type DraftStrategy = z.infer<typeof DraftStrategySchema>;
 

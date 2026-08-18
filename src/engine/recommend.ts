@@ -3,7 +3,8 @@ import type { Player } from '../data/player';
 import type { DraftState } from '../draft/state';
 import { userRoster } from '../draft/state';
 import type { DraftStrategy } from '../strategy/types';
-import { PRIORITY_MULTIPLIER } from '../strategy/types';
+import { AVOID_MULTIPLIER, PRIORITY_MULTIPLIER, TARGET_MULTIPLIER } from '../strategy/types';
+import { resolvePlayerNotes } from '../strategy/playerMatch';
 import { clamp, normalize } from './math';
 import { replacementBaselines, vor, type ReplacementBaseline } from './replacement';
 import { rosterNeed } from './rosterNeed';
@@ -152,6 +153,8 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
     );
   });
 
+  const noteStances = resolvePlayerNotes(allPlayers, strategy.playerNotes);
+
   const scored: ScoredPlayer[] = candidates.map((player, i) => {
     const components: ComponentBreakdown = {
       projection: rawProj[i]!,
@@ -177,6 +180,16 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
     // Strategy position priority.
     const priority = strategy.positionPriorities[player.position] ?? 'normal';
     score *= PRIORITY_MULTIPLIER[priority];
+
+    // Personal player reads from the strategy.
+    const stance = noteStances.get(player.playerId);
+    if (stance === 'target') {
+      score *= TARGET_MULTIPLIER;
+      reasons.push('You marked this player as undervalued.');
+    } else if (stance === 'avoid') {
+      score *= AVOID_MULTIPLIER;
+      cautions.push('You marked this player as overvalued.');
+    }
 
     // Strategy rules.
     for (const rule of strategy.rules) {
