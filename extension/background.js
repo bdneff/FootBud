@@ -57,11 +57,31 @@ function getPlayerMap(season) {
 /** Tab id of the ESPN draft room, learned from its own messages. */
 let espnTabId = null;
 
+function broadcastPickFailure(playerName, reason) {
+  chrome.tabs.query({}, (tabs) => {
+    for (const tab of tabs) {
+      if (tab.id === undefined) continue;
+      chrome.tabs
+        .sendMessage(tab.id, {
+          type: 'footbud-pick-result',
+          ok: false,
+          reason,
+          playerName: String(playerName ?? ''),
+        })
+        .catch(() => {});
+    }
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return undefined;
 
-  // Draft-room -> FootBud broadcasts (picks and clock status).
-  if (message.type === 'footbud-picks' || message.type === 'footbud-status') {
+  // Draft-room -> FootBud broadcasts (picks, clock status, pick results).
+  if (
+    message.type === 'footbud-picks' ||
+    message.type === 'footbud-status' ||
+    message.type === 'footbud-pick-result'
+  ) {
     if (sender.tab?.id !== undefined) espnTabId = sender.tab.id;
     chrome.tabs.query({}, (tabs) => {
       for (const tab of tabs) {
@@ -74,10 +94,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return undefined;
   }
 
-  // FootBud -> draft room: submit a pick.
+  // FootBud -> draft room: submit a pick. A missing draft-room tab is a
+  // failure the user must hear about, not a silent drop.
   if (message.type === 'footbud-make-pick') {
     if (espnTabId !== null) {
-      chrome.tabs.sendMessage(espnTabId, { ...message, type: 'footbud-do-pick' }).catch(() => {});
+      chrome.tabs.sendMessage(espnTabId, { ...message, type: 'footbud-do-pick' }).catch(() => {
+        broadcastPickFailure(message.playerName, 'The ESPN draft room tab did not respond.');
+      });
+    } else {
+      broadcastPickFailure(
+        message.playerName,
+        'No ESPN draft room tab found — make this pick in the ESPN tab.',
+      );
     }
     return undefined;
   }

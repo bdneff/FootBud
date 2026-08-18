@@ -1,5 +1,22 @@
 import { useEffect, useState } from 'react';
-import type { EspnClockState } from '../store';
+import { BRIDGE_STALE_MS, type EspnClockState, type LiveSyncState } from '../store';
+
+/**
+ * True when the ESPN bridge has gone silent (closed tab, dropped socket,
+ * missing extension). Re-evaluated every few seconds; the extension
+ * heartbeats at least every 5s while the draft socket lives.
+ */
+export function useBridgeStale(liveSync: LiveSyncState | null): boolean {
+  const [, force] = useState(0);
+  const active = liveSync?.sourceId === 'espn-bridge' && liveSync.status !== 'complete';
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => force((n) => n + 1), 4000);
+    return () => clearInterval(timer);
+  }, [active]);
+  if (!active || !liveSync) return false;
+  return liveSync.lastSyncAt !== null && Date.now() - liveSync.lastSyncAt > BRIDGE_STALE_MS;
+}
 
 /** Seconds left on the ESPN pick clock, extrapolated locally between ticks. */
 export function useEspnCountdown(clock: EspnClockState | null): number | null {

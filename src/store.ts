@@ -44,7 +44,12 @@ export interface LiveSyncState {
   error: string | null;
   warnings: string[];
   espnClock: EspnClockState | null;
+  /** A pick sent to ESPN that has not been acknowledged yet. */
+  pickPending: { playerName: string; at: number } | null;
 }
+
+/** How long without any bridge message before the ESPN feed counts as dead. */
+export const BRIDGE_STALE_MS = 20000;
 
 export interface AppState {
   phase: 'setup' | 'draft';
@@ -236,6 +241,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           error: null,
           warnings: [],
           espnClock: null,
+          pickPending: null,
         },
       });
       startPolling();
@@ -259,11 +265,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           sourceLabel: 'ESPN extension',
           draftId: 'espn',
           status: 'polling',
-          lastSyncAt: null,
+          lastSyncAt: Date.now(),
           pickCount: 0,
           error: null,
           warnings: [],
           espnClock: null,
+          pickPending: null,
         },
       });
       startEspnBridgeListener();
@@ -304,7 +311,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ lastError: 'It is not your turn in the ESPN draft room yet.' });
       return;
     }
-    window.postMessage({ source: 'footbud-app', type: 'make-pick', playerName, position }, '*');
+    if (liveSync.lastSyncAt !== null && Date.now() - liveSync.lastSyncAt > BRIDGE_STALE_MS) {
+      set({
+        lastError:
+          'The ESPN connection looks dead — make this pick in the ESPN tab, then check the extension.',
+      });
+      return;
+    }
+    if (liveSync.pickPending) return; // one in flight at a time
+    const pending = { playerName, at: Date.now() };
+    set({ liveSync: { ...liveSync, pickPending: pending } });
+    window.postMessage(
+      { source: 'footbud-app', type: 'make-pick', playerName, position },
+      window.location.origin,
+    );
+    // If nothing acknowledges the pick quickly, tell the user to act in the
+    // ESPN tab instead of letting the clock run out on a silent failure.
+    setTimeout(() => {
+      const current = get().liveSync;
+      if (current?.pickPending && current.pickPending.at === pending.at) {
+        set({
+          liveSync: { ...current, pickPending: null },
+          lastError: `No response from the ESPN draft room for ${playerName} — make the pick in the ESPN tab.`,
+        });
+      }
+    }, 3000);
   },
 
   syncNow: async () => {
@@ -326,22 +357,30 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 /** Last authoritative pick list, kept so a pool swap can force a rebuild. */
 let lastExternalPicks: ExternalPick[] = [];
+let lastPickFingerprint = '';
 
 /** Rebuild the draft from an authoritative external pick list. */
 function applyExternalPicks(picks: ExternalPick[], force = false): void {
   lastExternalPicks = picks;
   const { config, players, strategy, liveSync, draft } = useAppStore.getState();
   if (!liveSync) return;
-  // Skip rebuild when nothing changed; rebuild otherwise so platform-side
-  // corrections are absorbed.
-  if (!force && draft && liveSync.pickCount === picks.length && liveSync.lastSyncAt !== null) {
+  // Skip rebuild only when the CONTENT is unchanged — same-length lists can
+  // still carry corrections (a fixed pick, better attribution), and the
+  // platform is always the authority.
+  const fingerprint = JSON.stringify(picks.map((p) => [p.overall, p.slot, p.playerName]));
+  if (!force && draft && fingerprint === lastPickFingerprint && liveSync.lastSyncAt !== null) {
     useAppStore.setState({ liveSync: { ...liveSync, lastSyncAt: Date.now(), error: null } });
     return;
   }
+  lastPickFingerprint = fingerprint;
   const { state, warnings } = buildSyncedDraft(config, players, picks);
   persist(state, strategy);
   const complete = state.complete;
   if (complete) stopPolling();
+  // Keep non-sync warnings (projections failures, slot corrections) alive
+  // across rebuilds; sync warnings refresh each time.
+  const kept = liveSync.warnings.filter((w) => !w.includes('placeholder') && !w.includes('numbering gap'));
+  const merged = [...new Set([...kept, ...warnings])].slice(-8);
   useAppStore.setState({
     draft: state,
     liveSync: {
@@ -350,7 +389,7 @@ function applyExternalPicks(picks: ExternalPick[], force = false): void {
       lastSyncAt: Date.now(),
       pickCount: picks.length,
       error: null,
-      warnings,
+      warnings: merged,
     },
   });
 }
@@ -382,7 +421,10 @@ interface BridgeMessage {
     yourTurn?: boolean;
     msRemaining?: number | null;
     at?: number;
+    mySlot?: number | null;
+    numberingDegraded?: boolean;
   };
+  pickResult?: { ok?: boolean; reason?: string | null; playerName?: string };
   projections?: unknown;
   projectionsSeason?: number;
   projectionsError?: string | null;
@@ -392,8 +434,14 @@ interface BridgeMessage {
 export function requestEspnProjections(): void {
   window.postMessage(
     { source: 'footbud-app', type: 'request-projections', season: currentSeason() },
-    '*',
+    window.location.origin,
   );
+}
+
+function appendWarning(warning: string): void {
+  const current = useAppStore.getState().liveSync;
+  if (!current || current.warnings.includes(warning)) return;
+  useAppStore.setState({ liveSync: { ...current, warnings: [...current.warnings, warning] } });
 }
 
 let bridgeListener: ((event: MessageEvent) => void) | null = null;
@@ -401,10 +449,33 @@ let bridgeListener: ((event: MessageEvent) => void) | null = null;
 function startEspnBridgeListener(): void {
   stopEspnBridgeListener();
   bridgeListener = (event: MessageEvent) => {
+    // Only this page, from this page's own origin: an embedded cross-origin
+    // iframe must not be able to forge picks, status, or projections.
+    if (event.source !== window || event.origin !== window.location.origin) return;
     const data = event.data as BridgeMessage;
     if (!data || data.source !== 'footbud-espn-bridge') return;
-    const current = useAppStore.getState().liveSync;
+    let current = useAppStore.getState().liveSync;
     if (!current || current.sourceId !== 'espn-bridge') return;
+
+    // Every bridge message is proof of life; staleness is measured from here.
+    useAppStore.setState({ liveSync: { ...current, lastSyncAt: Date.now() } });
+    current = useAppStore.getState().liveSync!;
+
+    // Outcome of a pick submitted from FootBud.
+    if (data.pickResult && typeof data.pickResult === 'object') {
+      const ok = data.pickResult.ok === true;
+      useAppStore.setState({
+        liveSync: { ...current, pickPending: null },
+        ...(ok
+          ? {}
+          : {
+              lastError:
+                data.pickResult.reason ??
+                `The pick for ${data.pickResult.playerName ?? 'the player'} failed — make it in the ESPN tab.`,
+            }),
+      });
+      return;
+    }
 
     // ESPN projections payload fetched by the extension with the user's
     // session: swap in the real pool and rebuild the synced board on it.
@@ -446,6 +517,28 @@ function startEspnBridgeListener(): void {
           },
         },
       });
+      if (data.status.numberingDegraded) {
+        appendWarning(
+          'ESPN pick numbering looked inconsistent; team attribution on the board may be off.',
+        );
+      }
+      // ESPN's round-1 order is the authority on your draft slot. Correct a
+      // wrong hand-entered slot and rebuild so every horizon is right.
+      const mySlot = data.status.mySlot;
+      const { config } = useAppStore.getState();
+      if (
+        typeof mySlot === 'number' &&
+        Number.isInteger(mySlot) &&
+        mySlot >= 1 &&
+        mySlot <= config.numberOfTeams &&
+        mySlot !== config.userDraftSlot
+      ) {
+        useAppStore.getState().setConfig({ ...config, userDraftSlot: mySlot });
+        appendWarning(
+          `Draft position corrected to ${mySlot} (from ESPN's round-1 order); recommendations now plan your real picks.`,
+        );
+        applyExternalPicks(lastExternalPicks, true);
+      }
       return;
     }
 

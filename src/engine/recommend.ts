@@ -32,6 +32,8 @@ export interface ScoredPlayer {
   dropOffValue: number;
   /** P(available at the user's next pick). 1 when no next pick exists. */
   survivalToNextPick: number;
+  /** P(available at the pick being advised); 1 when the user is on the clock. */
+  availabilityAtYourPick: number;
   tier: number | undefined;
   remainingInTier: number;
   reasons: string[];
@@ -101,32 +103,42 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
   const me = userRoster(state);
   const round = state.currentRound ?? 99;
 
-  // The horizon for survival/scarcity: the user's NEXT pick after the one on
-  // the clock now (when the user is on the clock, that's userPickAfterNext).
-  const displayHorizon =
-    state.slotOnClock === state.config.userDraftSlot ? userPickAfterNext : nextUserPick;
-  // Only opponent picks can take players away, so all availability math runs
-  // on an opponent-compressed horizon. At a snake turn (you own back-to-back
-  // picks) zero opponents pick in between and everyone survives.
-  const oppPicksToHorizon =
-    displayHorizon === null
-      ? null
-      : opponentPicksBetween(state.config, state.config.userDraftSlot, current, displayHorizon);
-  const horizon = oppPicksToHorizon === null ? null : current + oppPicksToHorizon;
+  // The engine always advises the user's own next pick (evalPick). When the
+  // user is on the clock that IS the current pick; between picks everything
+  // must be scored for the pick they will actually make, not the opponent's
+  // pick on the clock — otherwise the panel plans around players who will be
+  // long gone. Availability math runs on opponent-compressed pick counts (at
+  // a snake turn zero opponents pick in between, so everyone survives).
+  const userOnClock = state.slotOnClock === state.config.userDraftSlot;
+  const evalPick = nextUserPick ?? current;
+  const followUpPick = userPickAfterNext;
+  const compress = (target: number) =>
+    current + opponentPicksBetween(state.config, state.config.userDraftSlot, current, target);
+  const cEval = compress(evalPick);
+  const cFollow = followUpPick === null ? null : compress(followUpPick);
+  /** Opponent picks between the advised pick and the one after it. */
+  const oppEvalToFollow = cFollow === null ? 0 : cFollow - cEval;
+  const displayHorizon = userOnClock ? followUpPick : nextUserPick;
 
   const candidates = candidateSet(available, baselines);
 
   // Raw components.
   const rawVor = candidates.map((p) => vor(p, baselines));
-  const rawDrop = candidates.map((p) => dropOff(p, available, baselines, current, horizon));
-  const rawSurvival = candidates.map((c) =>
-    horizon === null ? 1 : survivalProbability(c, current, horizon),
+  // Chance the player is still on the board at the pick being advised.
+  const rawAvail = candidates.map((p) =>
+    userOnClock ? 1 : survivalProbability(p, current, cEval),
   );
+  // Chance the player survives FROM the advised pick to the one after it
+  // (the take-now-or-wait question, asked at the pick you control).
+  const rawSurvival = candidates.map((p) =>
+    cFollow === null ? 1 : survivalProbability(p, cEval, cFollow),
+  );
+  const rawDrop = candidates.map((p) => dropOff(p, available, baselines, current, cFollow));
   const rawUrgency = candidates.map((_, i) => (1 - rawSurvival[i]!) * Math.max(0, rawVor[i]!));
   const rawNeed = candidates.map((p) =>
     rosterNeed(p.position, me.countsByPosition, state.config.roster),
   );
-  const rawUpside = candidates.map((p) => clamp(current - p.adp, 0, 30));
+  const rawUpside = candidates.map((p) => clamp(evalPick - p.adp, 0, 30));
   // Projection is normalized within position so cross-position scale
   // differences (QBs score more points) don't drown out VOR.
   const projByPosition = new Map<Position, number[]>();
@@ -183,6 +195,10 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
           w.upside * riskUpsideMult * components.upside)) /
       weightSum;
 
+    // Off the clock the score is EXPECTED value at the pick being advised:
+    // a player who will not reach you is not a recommendation, however good.
+    score *= rawAvail[i]!;
+
     const reasons: string[] = [];
     const cautions: string[] = [];
 
@@ -202,14 +218,15 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
 
     // Reach discipline: value alone does not justify taking a player far
     // ahead of where the market drafts him, because a comparable board will
-    // usually offer him (or his tier) later. Measured in rounds so an
-    // 11-pick reach in round 2 stings as much as a 30-pick reach in round 8:
-    // grace of half a round, then down to 0.5 by about a 2.5-round reach.
-    const reachRounds = (player.adp - current) / state.config.numberOfTeams;
-    if (reachRounds > 0.5 && Number.isFinite(current)) {
+    // usually offer him (or his tier) later. Measured against the pick being
+    // ADVISED (your pick, not an opponent's), in rounds so an 11-pick reach
+    // in round 2 stings as much as a 30-pick reach in round 8: grace of half
+    // a round, then down to 0.5 by about a 2.5-round reach.
+    const reachRounds = (player.adp - evalPick) / state.config.numberOfTeams;
+    if (reachRounds > 0.5 && Number.isFinite(evalPick)) {
       score *= clamp(1 - (reachRounds - 0.5) / 2, 0.5, 1);
       cautions.push(
-        `Reach: typically drafted around pick ${player.adp.toFixed(0)}, ${Math.round(player.adp - current)} picks from now.`,
+        `Reach: typically drafted around pick ${player.adp.toFixed(0)}, ${Math.round(player.adp - evalPick)} picks after your pick ${evalPick}.`,
       );
     }
 
@@ -264,24 +281,40 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
         reasons.push(`Waiting is costly: the ${player.position} group thins out before your next pick.`);
       }
     }
-    if (horizon !== null && surv < 0.35) {
+    // Urgency ("take now before he's gone") is only a reason when you can
+    // actually take him now.
+    if (userOnClock && cFollow !== null && surv < 0.35) {
       reasons.push(
         `Only ${(surv * 100).toFixed(0)}% chance of surviving to your next pick (${displayHorizon}).`,
       );
+    }
+    // Between picks, availability at YOUR pick is the framing: low odds are
+    // a caution, good odds a reason.
+    if (!userOnClock) {
+      const avail = rawAvail[i]!;
+      if (avail < 0.35) {
+        cautions.push(
+          `Only ${(avail * 100).toFixed(0)}% likely to reach your pick ${evalPick}; plan a fallback.`,
+        );
+      } else if (avail > 0.65) {
+        reasons.push(
+          `${(avail * 100).toFixed(0)}% likely to still be there at your pick ${evalPick}.`,
+        );
+      }
     }
     if (components.rosterNeed >= 1) reasons.push(`Fills an open ${player.position} starter slot.`);
     else if (components.rosterNeed >= 0.55) reasons.push('Fits an open flex spot.');
     if (rawUpside[i]! >= 8) {
       reasons.push(`Falling value: typically drafted around pick ${player.adp.toFixed(0)}.`);
     }
-    // "You could wait" only makes sense when opponents actually pick before
-    // your next turn; at a back-to-back turn both picks are yours anyway.
-    if (horizon !== null && oppPicksToHorizon !== null && oppPicksToHorizon > 0 && surv > 0.7) {
+    // "You could wait" only makes sense on the clock, and only when
+    // opponents actually pick before your next turn (not at a snake turn).
+    if (userOnClock && oppEvalToFollow > 0 && surv > 0.7) {
       cautions.push(
         `${(surv * 100).toFixed(0)}% likely to still be available at your next pick, so you could wait.`,
       );
     }
-    if (rawDrop[i]! < 0 && (oppPicksToHorizon ?? 0) > 0) {
+    if (userOnClock && rawDrop[i]! < 0 && oppEvalToFollow > 0) {
       cautions.push('A comparable player at this position will probably still be there next turn.');
     }
     if (rawNeed[i]! < 0.2) {
@@ -297,7 +330,10 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
       components,
       vorValue: rawVor[i]!,
       dropOffValue: rawDrop[i]!,
-      survivalToNextPick: surv,
+      // What "your next pick" means to the reader: on the clock it is the
+      // pick after this one; between picks it is the pick being advised.
+      survivalToNextPick: userOnClock ? surv : rawAvail[i]!,
+      availabilityAtYourPick: rawAvail[i]!,
       tier: tiers.get(player.playerId),
       remainingInTier: Number.isFinite(inTier) ? inTier : 0,
       reasons,
@@ -314,27 +350,29 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
     .map((s) => ({ player: s.player, probability: s.survivalToNextPick }))
     .sort((a, b) => a.probability - b.probability);
 
+  // Cost of waiting one of YOUR turns: expected best at the pick being
+  // advised versus expected best at the pick after it.
   const waitByPosition: WaitAnalysis[] = PLAYER_POSITIONS.map((position) => {
     const atPos = scored.filter((s) => s.player.position === position);
     const bestNow = atPos[0] ?? null;
+    const expectedAtEval = expectedBestVorAtPick(position, available, baselines, current, cEval);
     const expectedBest =
-      horizon === null
+      cFollow === null
         ? 0
-        : expectedBestVorAtPick(position, available, baselines, current, horizon);
-    const bestNowVor = bestNow?.vorValue ?? 0;
+        : expectedBestVorAtPick(position, available, baselines, current, cFollow);
     return {
       position,
       bestNow: bestNow?.player ?? null,
-      bestNowVor,
+      bestNowVor: expectedAtEval,
       expectedBestVorAtNextPick: expectedBest,
-      costOfWaiting: bestNowVor - expectedBest,
+      costOfWaiting: expectedAtEval - expectedBest,
     };
   });
 
-  // Two-pick planning: pair each top candidate now with the best expected
-  // position at the following user pick.
+  // Two-pick planning: pair each top candidate at the advised pick with the
+  // best expected position at the FOLLOWING user pick (never the same pick).
   const pairOptions: PairOption[] = [];
-  const pairHorizon = horizon;
+  const pairHorizon = cFollow;
   if (pairHorizon !== null) {
     for (const cand of scored.slice(0, 6)) {
       const availWithout = available.filter((p) => p.playerId !== cand.player.playerId);
@@ -368,7 +406,9 @@ export function recommend(state: DraftState, strategy: DraftStrategy): Recommend
         thenPosition: bestPos,
         thenLikelyPlayer: likely?.p ?? null,
         expectedThenVor: bestExpected,
-        combinedValue: cand.vorValue + bestExpected,
+        // The "now" half is expected value: off the clock the candidate may
+        // not reach the advised pick at all.
+        combinedValue: cand.availabilityAtYourPick * cand.vorValue + bestExpected,
       });
     }
     pairOptions.sort((a, b) => b.combinedValue - a.combinedValue);

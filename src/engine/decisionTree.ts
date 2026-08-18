@@ -33,10 +33,12 @@ export interface TreeLeaf {
 export interface TreeBranch {
   pickNow: Player;
   pickNowVor: number;
+  /** P(this root player is still available at the deciding pick). */
+  rootAvailability: number;
   /** The follow-up player this branch plans around at the next user pick. */
   target: Player | null;
   leaves: TreeLeaf[];
-  /** pickNow VOR + probability-weighted follow-up value. */
+  /** Availability-weighted: P(root reaches you) x (root VOLS + follow-up EV). */
   expectedValue: number;
 }
 
@@ -82,16 +84,25 @@ export function buildDecisionTree(
   const baselines = rec.baselines;
   // Availability math advances only when opponents pick: at a snake turn the
   // follow-up is guaranteed and every survival below becomes 1.
-  const followUpPick =
-    displayFollowUp === null
-      ? null
-      : current +
-        opponentPicksBetween(state.config, state.config.userDraftSlot, current, displayFollowUp);
+  const compress = (target: number) =>
+    current + opponentPicksBetween(state.config, state.config.userDraftSlot, current, target);
+  const cDeciding = compress(decidingPick);
+  const followUpPick = displayFollowUp === null ? null : compress(displayFollowUp);
 
   const branches: TreeBranch[] = rootCandidates(rec).map((pickNow) => {
     const pickNowVor = vor(pickNow, baselines);
+    // Between picks the root itself may never reach the deciding pick; the
+    // whole branch is worth its expected value, not its face value.
+    const rootAvailability = userOnClock ? 1 : survivalProbability(pickNow, current, cDeciding);
     if (followUpPick === null) {
-      return { pickNow, pickNowVor, target: null, leaves: [], expectedValue: pickNowVor };
+      return {
+        pickNow,
+        pickNowVor,
+        rootAvailability,
+        target: null,
+        leaves: [],
+        expectedValue: rootAvailability * pickNowVor,
+      };
     }
 
     const remaining = available.filter((p) => p.playerId !== pickNow.playerId);
@@ -108,14 +119,23 @@ export function buildDecisionTree(
       .map(({ p, v }) => ({
         p,
         v,
-        surv: survivalProbability(p, current, followUpPick),
+        // Conditional on the draft reaching the deciding pick with the board
+        // as modeled: survival measured from there to the follow-up.
+        surv: survivalProbability(p, cDeciding, followUpPick),
       }));
     const target =
       candidates.find((t) => t.surv >= 0.15) ??
       [...candidates].sort((a, b) => b.v * b.surv - a.v * a.surv)[0];
 
     if (!target) {
-      return { pickNow, pickNowVor, target: null, leaves: [], expectedValue: pickNowVor };
+      return {
+        pickNow,
+        pickNowVor,
+        rootAvailability,
+        target: null,
+        leaves: [],
+        expectedValue: rootAvailability * pickNowVor,
+      };
     }
 
     // Fallback if the target is gone: the best expected VOR at the follow-up
@@ -155,12 +175,16 @@ export function buildDecisionTree(
       },
     ];
     const expectedValue =
-      pickNowVor + target.surv * target.v + (1 - target.surv) * fallbackValue;
-    return { pickNow, pickNowVor, target: target.p, leaves, expectedValue };
+      rootAvailability *
+      (pickNowVor + target.surv * target.v + (1 - target.surv) * fallbackValue);
+    return { pickNow, pickNowVor, rootAvailability, target: target.p, leaves, expectedValue };
   });
 
-  branches.sort((a, b) => b.expectedValue - a.expectedValue);
+  // A root with almost no chance of reaching you is not a decision.
+  const viable = branches.filter((b) => b.rootAvailability >= 0.05);
+  const kept = viable.length > 0 ? viable : branches;
+  kept.sort((a, b) => b.expectedValue - a.expectedValue);
   // The display field carries the real pick number; the compressed horizon
   // was only for the availability math above.
-  return { decidingPick, followUpPick: displayFollowUp, branches };
+  return { decidingPick, followUpPick: displayFollowUp, branches: kept };
 }

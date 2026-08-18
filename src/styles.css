@@ -976,3 +976,24 @@ label {
   margin-top: 12px;
   width: 100%;
 }
+.tree-avail {
+  font-size: 11px;
+  color: var(--warn);
+}
+.sync-badge.stale {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.sync-badge.stale .sync-dot {
+  background: var(--danger);
+}
+.sync-warnings {
+  background: #3a2a13;
+  border-bottom: 1px solid var(--warn);
+  color: #f0d9a8;
+  padding: 6px 16px;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}

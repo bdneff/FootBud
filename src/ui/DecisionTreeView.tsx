@@ -16,6 +16,9 @@ export function DecisionTreeView({ tree }: { tree: DecisionTree | null }) {
             <div className="tree-root">
               <span className={`pos-dot pos-${branch.pickNow.position}`} />
               <strong>Draft {branch.pickNow.name}</strong>
+              {branch.rootAvailability < 0.995 && (
+                <span className="tree-avail">reaches you {pct(branch.rootAvailability)}</span>
+              )}
               <span className="tree-ev">
                 EV {branch.expectedValue.toFixed(0)}
                 {i === 0 && <span className="tree-best-tag"> best</span>}

@@ -152,17 +152,61 @@ describe('turn awareness (back-to-back picks)', () => {
     }
   });
 
-  it('scales the reach penalty by rounds, not raw picks', () => {
-    // An 11-pick reach in round 2 of a 12-teamer must be penalized.
-    const pool = syntheticPool().map((p) =>
-      p.playerId === 'wr3' ? { ...p, adp: 25 } : p,
-    );
+  it('measures reach against YOUR pick, not the opponent pick on the clock', () => {
+    // User slot 1, browsing at pick 13; their actual next pick is 24.
+    const pool = syntheticPool().map((p) => {
+      if (p.playerId === 'wr3') return { ...p, adp: 25 }; // market price AT pick 24
+      if (p.playerId === 'wr4') return { ...p, adp: 45 }; // ~1.75 rounds after 24
+      return p;
+    });
     let s = createDraft(league({ userDraftSlot: 1 }), pool);
     s = applyPick(s, 'rb1');
     for (let i = 0; i < 11; i++) s = applyPick(s, s.availablePlayers[0]!.playerId);
-    // Current pick 13; wr3 priced at 25 -> a ~1 round reach.
     const rec = recommend(s, BALANCED_VALUE);
     const wr3 = rec.scored.find((sc) => sc.player.playerId === 'wr3');
-    if (wr3) expect(wr3.cautions.join(' ')).toMatch(/Reach/);
+    const wr4 = rec.scored.find((sc) => sc.player.playerId === 'wr4');
+    // Priced at your pick is NOT a reach, even though it is 12 picks past
+    // the opponent's on-clock pick.
+    if (wr3) expect(wr3.cautions.join(' ')).not.toMatch(/Reach/);
+    if (wr4) expect(wr4.cautions.join(' ')).toMatch(/Reach/);
+  });
+
+  it('off the clock, ranks by expected value at YOUR pick, not raw value', () => {
+    // User slot 1, browsing at pick 13, next pick 24: the best players on
+    // the board (ADP ~13-16) will be long gone by 24 and must not top the
+    // planning list, nor may certain unavailability appear as a reason.
+    let s = createDraft(league({ userDraftSlot: 1 }), syntheticPool());
+    s = applyPick(s, 'rb1');
+    for (let i = 0; i < 11; i++) s = applyPick(s, s.availablePlayers[0]!.playerId);
+    const rec = recommend(s, BALANCED_VALUE);
+    const top5 = rec.scored.slice(0, 5);
+    for (const sc of top5) {
+      expect(sc.availabilityAtYourPick).toBeGreaterThan(0.2);
+      expect(sc.reasons.join(' ')).not.toMatch(/Only \d+% chance of surviving/);
+    }
+    // Pair values must discount "now" halves by availability.
+    for (const opt of rec.pairOptions) {
+      expect(opt.combinedValue).toBeLessThanOrEqual(
+        opt.now.vorValue + opt.expectedThenVor + 1e-9,
+      );
+    }
+  });
+
+  it('off the clock, the decision tree discounts roots by their availability', async () => {
+    const { buildDecisionTree } = await import('../src/engine/decisionTree');
+    let s = createDraft(league({ userDraftSlot: 1 }), syntheticPool());
+    s = applyPick(s, 'rb1');
+    for (let i = 0; i < 11; i++) s = applyPick(s, s.availablePlayers[0]!.playerId);
+    const rec = recommend(s, BALANCED_VALUE);
+    const tree = buildDecisionTree(s, rec)!;
+    expect(tree.decidingPick).toBe(24);
+    for (const branch of tree.branches) {
+      expect(branch.rootAvailability).toBeGreaterThanOrEqual(0.05);
+      expect(branch.expectedValue).toBeLessThanOrEqual(
+        branch.rootAvailability *
+          (branch.pickNowVor + Math.max(...branch.leaves.map((l) => l.value), 0)) +
+          1e-6,
+      );
+    }
   });
 });

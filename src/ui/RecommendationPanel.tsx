@@ -5,7 +5,7 @@ import type { Recommendation, ScoredPlayer } from '../engine/recommend';
 import { useAppStore } from '../store';
 import { DecisionTreeView } from './DecisionTreeView';
 import { EngineDetails } from './EngineDetails';
-import { formatClock, useEspnCountdown } from './EspnClock';
+import { formatClock, useBridgeStale, useEspnCountdown } from './EspnClock';
 
 function AltRow({ alt, onEspnDraft }: { alt: ScoredPlayer; onEspnDraft: (() => void) | null }) {
   const reason = alt.reasons[0] ?? 'Solid value at the position.';
@@ -45,8 +45,10 @@ export function RecommendationPanel({
   const sendEspnPick = useAppStore((s) => s.sendEspnPick);
   const synced = liveSync !== null && liveSync.status !== 'complete';
   const espnBridge = synced && liveSync.sourceId === 'espn-bridge';
-  const espnTurn = espnBridge && liveSync.espnClock?.yourTurn === true;
-  const clockSeconds = useEspnCountdown(espnBridge ? liveSync.espnClock : null);
+  const bridgeStale = useBridgeStale(liveSync);
+  const espnTurn = espnBridge && !bridgeStale && liveSync.espnClock?.yourTurn === true;
+  const pickPending = espnBridge ? liveSync.pickPending : null;
+  const clockSeconds = useEspnCountdown(espnBridge && !bridgeStale ? liveSync.espnClock : null);
   const tree = useMemo(
     () => (rec && !draft.complete ? buildDecisionTree(draft, rec) : null),
     [draft, rec],
@@ -103,20 +105,33 @@ export function RecommendationPanel({
             Draft {best.player.name}
           </button>
         )}
+        {espnTurn && !userIsOnClock && (
+          <p className="config-error">
+            ESPN says YOU are on the clock, but FootBud's board has Team {draft.slotOnClock} up —
+            your draft position setting is probably wrong. Trust the ESPN tab.
+          </p>
+        )}
         {espnBridge && espnTurn && (
           <button
             className="primary espn-pick-btn"
+            disabled={pickPending !== null}
             onClick={() => sendEspnPick(best.player.name, best.player.position)}
           >
-            Draft {best.player.name} in ESPN
-            {clockSeconds !== null ? ` · ${formatClock(clockSeconds)}` : ''}
+            {pickPending
+              ? `Sending ${pickPending.playerName}...`
+              : `Draft ${best.player.name} in ESPN${clockSeconds !== null ? ` · ${formatClock(clockSeconds)}` : ''}`}
           </button>
         )}
-        {espnBridge && !espnTurn && (
+        {espnBridge && !espnTurn && !bridgeStale && (
           <p className="hint">
             Waiting for your ESPN turn
             {clockSeconds !== null ? ` · pick clock ${formatClock(clockSeconds)}` : ''}. The draft
             button appears when you are on the clock.
+          </p>
+        )}
+        {espnBridge && bridgeStale && (
+          <p className="config-error">
+            ESPN connection lost — make picks in the ESPN tab and check the extension.
           </p>
         )}
         {userIsOnClock && synced && !espnBridge && (

@@ -4,7 +4,7 @@ import { useAppStore } from '../store';
 import { AskAi } from './AskAi';
 import { AvailablePlayers } from './AvailablePlayers';
 import { DraftBoard } from './DraftBoard';
-import { EspnCountdown } from './EspnClock';
+import { EspnCountdown, useBridgeStale } from './EspnClock';
 import { Logo } from './Logo';
 import { RecommendationPanel } from './RecommendationPanel';
 import { RosterPanel } from './RosterPanel';
@@ -21,6 +21,14 @@ export function DraftScreen() {
   const disconnectLiveSync = useAppStore((s) => s.disconnectLiveSync);
   const [showBoard, setShowBoard] = useState(true);
   const [showStrategy, setShowStrategy] = useState(false);
+  const bridgeStale = useBridgeStale(liveSync);
+  const playerSourceName = useAppStore((s) => s.playerSourceName);
+  const syncWarnings = [
+    ...(liveSync && liveSync.sourceId === 'espn-bridge' && playerSourceName.startsWith('Sample')
+      ? ['Still on the bundled sample projections — ESPN projections have not loaded. Recommendations are NOT using real data.']
+      : []),
+    ...(liveSync?.warnings ?? []),
+  ];
 
   const rec = useMemo(
     () => (draft && !draft.complete ? recommend(draft, strategy) : null),
@@ -57,18 +65,20 @@ export function DraftScreen() {
         </div>
         <div className="draft-actions">
           {liveSync && (
-            <span className={`sync-badge ${liveSync.status}`}>
+            <span className={`sync-badge ${bridgeStale ? 'stale' : liveSync.status}`}>
               <span className="sync-dot" />
-              {liveSync.sourceLabel}:{' '}
-              {liveSync.status === 'polling'
-                ? `live (${liveSync.pickCount} picks)`
-                : liveSync.status === 'paused'
-                  ? 'paused'
-                  : 'complete'}
-              {liveSync.error ? ' · retrying' : ''}
+              {bridgeStale
+                ? `${liveSync.sourceLabel}: connection lost — check the ESPN tab and extension`
+                : `${liveSync.sourceLabel}: ${
+                    liveSync.status === 'polling'
+                      ? `live (${liveSync.pickCount} picks)`
+                      : liveSync.status === 'paused'
+                        ? 'paused'
+                        : 'complete'
+                  }${liveSync.error ? ' · retrying' : ''}`}
             </span>
           )}
-          {liveSync?.sourceId === 'espn-bridge' && liveSync.espnClock && (
+          {liveSync?.sourceId === 'espn-bridge' && liveSync.espnClock && !bridgeStale && (
             <EspnCountdown clock={liveSync.espnClock} />
           )}
           {liveSync && liveSync.status !== 'complete' && (
@@ -113,6 +123,14 @@ export function DraftScreen() {
           </button>
         </div>
       </header>
+
+      {syncWarnings.length > 0 && (
+        <div className="sync-warnings" role="alert">
+          {syncWarnings.slice(-4).map((warning, i) => (
+            <div key={i}>⚠ {warning}</div>
+          ))}
+        </div>
+      )}
 
       {showStrategy && (
         <div className="strategy-drawer">

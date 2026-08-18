@@ -243,18 +243,28 @@ function detectTeams() {
 
 // ---- Socket pick capture (primary source) -------------------------------
 // The draft socket speaks a simple text protocol; every pick by every team
-// arrives as:   SELECTED <a> <playerId> <b> {memberGUID}
+// arrives as:   SELECTED <teamId> <playerId> <overall> {memberGUID}
 // The id is ESPN's player id (negative ids are D/ST). Names come from the
-// player directory served by the background worker. Arrival order is draft
-// order; the sequence persists in sessionStorage across page refreshes.
+// player directory served by the background worker. The frame's own overall
+// pick number is trusted when it forms a sane increasing sequence (arrival
+// order is only the fallback), and round-1 frames teach the teamId -> draft
+// slot mapping. Persistence is keyed by the league id from the socket URL so
+// tab refreshes and rejoin URLs keep the same sequence.
 
-const SOCKET_KEY = 'footbud-socket-picks:' + location.search;
+let socketKey = 'footbud-socket-picks:' + location.search;
 let socketPicks = [];
-try {
-  socketPicks = JSON.parse(sessionStorage.getItem(SOCKET_KEY) || '[]');
-} catch {
-  socketPicks = [];
+function loadSocketPicks() {
+  try {
+    socketPicks = JSON.parse(sessionStorage.getItem(socketKey) || '[]');
+  } catch {
+    socketPicks = [];
+  }
 }
+loadSocketPicks();
+
+/** teamId -> draft slot, learned from round-1 SELECTED frames. */
+let teamSlotMap = {};
+let numberingDegraded = false;
 
 const SEASON = (() => {
   const now = new Date();
@@ -278,16 +288,40 @@ function ensurePlayerMap() {
   });
 }
 
-function recordSocketPick(playerId) {
+function recordSocketPick(playerId, frameOverall, teamId) {
   if (socketPicks.some((p) => p.playerId === playerId)) return;
-  socketPicks.push({ overall: socketPicks.length + 1, playerId });
+  const lastOverall = socketPicks.length ? socketPicks[socketPicks.length - 1].overall : 0;
+  // Trust the frame's own pick number when it is sane and advances the
+  // sequence; otherwise fall back to arrival order and flag it so the app
+  // can warn instead of silently misattributing every roster.
+  let overall;
+  if (Number.isInteger(frameOverall) && frameOverall > lastOverall && frameOverall <= 600) {
+    overall = frameOverall;
+  } else {
+    overall = lastOverall + 1;
+    if (Number.isInteger(frameOverall)) {
+      numberingDegraded = true;
+      log(`frame pick number ${frameOverall} did not fit the sequence (last ${lastOverall}); using arrival order`);
+    }
+  }
+  // Round-1 frames map team ids to draft slots: the k-th overall pick of
+  // round 1 belongs to slot k. Only trust a clean from-the-start capture.
+  if (
+    Number.isInteger(teamId) &&
+    !(teamId in teamSlotMap) &&
+    overall === Object.keys(teamSlotMap).length + 1
+  ) {
+    teamSlotMap[teamId] = overall;
+    if (teamId === myTeamId) log(`your draft slot is ${overall} (from round-1 order)`);
+  }
+  socketPicks.push({ overall, playerId, teamId: Number.isInteger(teamId) ? teamId : null });
   try {
-    sessionStorage.setItem(SOCKET_KEY, JSON.stringify(socketPicks));
+    sessionStorage.setItem(socketKey, JSON.stringify(socketPicks));
   } catch {
     // In-memory list still works.
   }
   const info = playerMap && playerMap[playerId];
-  log(`socket pick ${socketPicks.length}: id ${playerId}${info ? ` -> ${info.name} ${info.position ?? ''}` : ' (name pending directory)'}`);
+  log(`socket pick ${overall}: id ${playerId}${info ? ` -> ${info.name} ${info.position ?? ''}` : ' (name pending directory)'}`);
 }
 
 function resolvedSocketPicks() {
@@ -298,9 +332,10 @@ function resolvedSocketPicks() {
   }
   return socketPicks.map((p) => {
     const info = playerMap[p.playerId];
+    const slot = p.teamId !== null && teamSlotMap[p.teamId] ? teamSlotMap[p.teamId] : 0;
     return {
       overall: p.overall,
-      slot: 0,
+      slot,
       playerName: info ? info.name : `ESPN player ${p.playerId}`,
       position: info ? info.position : null,
       team: info ? info.team : null,
@@ -336,10 +371,19 @@ function pushStatus(force) {
           myTeamId === clockState.onClockTeamId,
         msRemaining: clockState.msRemaining,
         at: clockState.at,
+        // Your draft slot, once round-1 frames have taught it.
+        mySlot: myTeamId !== null && teamSlotMap[myTeamId] ? teamSlotMap[myTeamId] : null,
+        numberingDegraded,
       },
     })
     .catch(() => {});
 }
+
+// Heartbeat so FootBud can detect a dead feed (closed tab, dropped socket):
+// while the draft socket has been seen, a status goes out at least every 5s.
+setInterval(() => {
+  if (draftSocketSeen) pushStatus(true);
+}, 5000);
 
 let draftSocketSeen = false;
 document.addEventListener('footbud-ws-message', (event) => {
@@ -354,14 +398,24 @@ document.addEventListener('footbud-ws-message', (event) => {
     draftSocketSeen = true;
     const teamMatch = url.match(/[?&]3=(\d+)/);
     if (teamMatch) myTeamId = Number(teamMatch[1]);
+    // Key persistence by league id so refreshes and rejoin URLs (whose query
+    // strings differ) continue the same pick sequence.
+    const leagueMatch = url.match(/league-(\d+)/);
+    if (leagueMatch) {
+      socketKey = 'footbud-socket-picks:league-' + leagueMatch[1];
+      loadSocketPicks();
+    }
     log('draft socket connected:', url.slice(0, 90), '| my team id:', myTeamId ?? 'unknown');
     ensurePlayerMap();
   }
 
   const parts = data.split(/\s+/);
+  // SELECTED <teamId> <playerId> <overall> {memberGUID}
   if (isDraftSocket && parts[0] === 'SELECTED' && parts.length >= 3 && /^-?\d+$/.test(parts[2])) {
     ensurePlayerMap();
-    recordSocketPick(Number(parts[2]));
+    const teamId = /^\d+$/.test(parts[1] ?? '') ? Number(parts[1]) : null;
+    const frameOverall = /^\d+$/.test(parts[3] ?? '') ? Number(parts[3]) : null;
+    recordSocketPick(Number(parts[2]), frameOverall, teamId);
     // The turn is over until the next SELECTING arrives.
     clockState = { onClockTeamId: null, msRemaining: null, at: Date.now() };
     pushStatus(true);
@@ -446,27 +500,47 @@ function resolveEspnPlayerId(playerName, position) {
   return fallback;
 }
 
+/** Report a pick submission outcome back to the FootBud tab. */
+function reportPickResult(ok, reason, playerName) {
+  log(ok ? `SELECT sent for ${playerName}` : `pick failed: ${reason}`);
+  chrome.runtime
+    .sendMessage({ type: 'footbud-pick-result', ok, reason: reason ?? null, playerName })
+    .catch(() => {});
+}
+
+let pendingPickName = null;
 document.addEventListener('footbud-select-result', (event) => {
   const d = (event && event.detail) || {};
-  log(d.ok ? `SELECT sent for player ${d.playerId}` : `SELECT failed: ${d.reason}`);
+  reportPickResult(
+    d.ok === true,
+    d.ok === true ? null : `ESPN draft socket rejected the pick (${d.reason}).`,
+    pendingPickName ?? `player ${d.playerId}`,
+  );
+  pendingPickName = null;
 });
 
 chrome.runtime.onMessage.addListener((message) => {
   if (!message || message.type !== 'footbud-do-pick') return;
+  const name = String(message.playerName ?? '');
   const yourTurn =
     myTeamId !== null &&
     clockState.onClockTeamId !== null &&
     myTeamId === clockState.onClockTeamId;
   if (!yourTurn) {
-    log('pick request ignored: it is not your turn');
+    reportPickResult(false, 'ESPN says it is not your turn right now.', name);
     return;
   }
   const id = resolveEspnPlayerId(message.playerName, message.position);
   if (id === null) {
-    log(`pick request failed: could not resolve "${message.playerName}" to an ESPN player id`);
+    reportPickResult(
+      false,
+      `Could not match "${name}" to an ESPN player — make this pick in the ESPN tab.`,
+      name,
+    );
     return;
   }
-  log(`submitting pick: ${message.playerName} (ESPN id ${id})`);
+  log(`submitting pick: ${name} (ESPN id ${id})`);
+  pendingPickName = name;
   document.dispatchEvent(new CustomEvent('footbud-send-select', { detail: { playerId: id } }));
 });
 
