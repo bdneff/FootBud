@@ -179,7 +179,7 @@ export function AiStrategyBuilder() {
       {mode === 'closed' && (
         <>
           <div className="button-row">
-            <button className="secondary" onClick={startInterview} disabled={disabled || !!busy}>
+            <button className="primary ai-cta" onClick={startInterview} disabled={disabled || !!busy}>
               Build a strategy with AI
             </button>
             <button
