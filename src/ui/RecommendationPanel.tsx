@@ -7,7 +7,7 @@ import { DecisionTreeView } from './DecisionTreeView';
 import { EngineDetails } from './EngineDetails';
 import { formatClock, useBridgeStale, useEspnCountdown } from './EspnClock';
 
-function AltRow({ alt, onEspnDraft }: { alt: ScoredPlayer; onEspnDraft: (() => void) | null }) {
+function AltRow({ alt }: { alt: ScoredPlayer }) {
   const reason = alt.reasons[0] ?? 'Solid value at the position.';
   const wait = alt.cautions[0] ?? null;
   return (
@@ -15,11 +15,6 @@ function AltRow({ alt, onEspnDraft }: { alt: ScoredPlayer; onEspnDraft: (() => v
       <div className="alt-head">
         <span className={`pos-badge pos-${alt.player.position}`}>{alt.player.position}</span>
         <strong>{alt.player.name}</strong>
-        {onEspnDraft && (
-          <button className="draft-btn" onClick={onEspnDraft}>
-            Draft
-          </button>
-        )}
         <span className="alt-score">{alt.score.toFixed(0)}</span>
       </div>
       <div className="alt-detail">
@@ -42,12 +37,10 @@ export function RecommendationPanel({
 }) {
   const makePick = useAppStore((s) => s.makePick);
   const liveSync = useAppStore((s) => s.liveSync);
-  const sendEspnPick = useAppStore((s) => s.sendEspnPick);
   const synced = liveSync !== null && liveSync.status !== 'complete';
   const espnBridge = synced && liveSync.sourceId === 'espn-bridge';
   const bridgeStale = useBridgeStale(liveSync);
   const espnTurn = espnBridge && !bridgeStale && liveSync.espnClock?.yourTurn === true;
-  const pickPending = espnBridge ? liveSync.pickPending : null;
   const clockSeconds = useEspnCountdown(espnBridge && !bridgeStale ? liveSync.espnClock : null);
   const tree = useMemo(
     () => (rec && !draft.complete ? buildDecisionTree(draft, rec) : null),
@@ -112,21 +105,17 @@ export function RecommendationPanel({
           </p>
         )}
         {espnBridge && espnTurn && (
-          <button
-            className="primary espn-pick-btn"
-            disabled={pickPending !== null}
-            onClick={() => sendEspnPick(best.player.name, best.player.position)}
-          >
-            {pickPending
-              ? `Sending ${pickPending.playerName}...`
-              : `Draft ${best.player.name} in ESPN${clockSeconds !== null ? ` · ${formatClock(clockSeconds)}` : ''}`}
-          </button>
+          <p className="hint on-clock-hint">
+            YOU are on the clock in ESPN
+            {clockSeconds !== null ? ` · ${formatClock(clockSeconds)} left` : ''} — make your pick
+            in the ESPN draft room tab.
+          </p>
         )}
         {espnBridge && !espnTurn && !bridgeStale && (
           <p className="hint">
             Waiting for your ESPN turn
-            {clockSeconds !== null ? ` · pick clock ${formatClock(clockSeconds)}` : ''}. The draft
-            button appears when you are on the clock.
+            {clockSeconds !== null ? ` · pick clock ${formatClock(clockSeconds)}` : ''}. Picks are
+            read from the ESPN draft room as they happen.
           </p>
         )}
         {espnBridge && bridgeStale && (
@@ -142,13 +131,7 @@ export function RecommendationPanel({
       <div className="section-title">Alternatives</div>
       <div className="alternatives">
         {rec.alternatives.map((alt) => (
-          <AltRow
-            key={alt.player.playerId}
-            alt={alt}
-            onEspnDraft={
-              espnTurn ? () => sendEspnPick(alt.player.name, alt.player.position) : null
-            }
-          />
+          <AltRow key={alt.player.playerId} alt={alt} />
         ))}
       </div>
 
