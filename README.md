@@ -19,9 +19,24 @@ npm run dev       # open the printed URL
 ```
 
 The app ships with sample 2026 preseason projections so it works
-immediately. For a real draft, import your own projections CSV on the setup
-screen (columns: `name, team, position, projected_points, adp`; optional:
-`adp_std_dev, tier, bye_week, injury_status, player_id`).
+immediately. For a real draft, load player data on the setup screen:
+
+- **Sleeper**: live projections and ADP from Sleeper's open API, matched
+  to your scoring setting.
+- **ESPN**: a real public endpoint, but ESPN usually blocks browser apps
+  from reading it (no CORS). FootBud tries and explains the failure; export
+  a CSV from ESPN if it is blocked for you.
+- **Yahoo**: needs OAuth through a server FootBud does not have yet; the
+  button says so and points you at CSV export.
+- **Aggregate (all)**: averages projections and ADP across every source
+  that responds.
+- **Upload your own CSV** (columns: `name, team, position,
+  projected_points, adp`; optional: `adp_std_dev, tier, bye_week,
+  injury_status, player_id`).
+
+All of this sits behind a `ProjectionSource` adapter interface
+(`src/data/sources/`), so new providers plug in without touching the
+engine.
 
 ```bash
 npm test          # engine test suite (vitest)

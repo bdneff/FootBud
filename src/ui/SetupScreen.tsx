@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   DEFAULT_LEAGUE,
   LeagueConfigSchema,
@@ -7,11 +7,10 @@ import {
   type LeagueConfig,
   type RosterConfig,
 } from '../config/league';
-import { parsePlayersCsv } from '../data/importCsv';
-import { SAMPLE_SOURCE_NAME, samplePlayers } from '../data/sampleData';
 import { hasSavedDraft, useAppStore } from '../store';
 import { AiKeySettings, AiStrategyBuilder } from './AiStrategyBuilder';
 import { Logo } from './Logo';
+import { PlayerDataSources } from './PlayerDataSources';
 import { StrategyEditor } from './StrategyEditor';
 
 const TEAM_COUNTS = [8, 10, 12, 14, 16];
@@ -20,14 +19,10 @@ export function SetupScreen() {
   const config = useAppStore((s) => s.config);
   const setConfig = useAppStore((s) => s.setConfig);
   const players = useAppStore((s) => s.players);
-  const playerSourceName = useAppStore((s) => s.playerSourceName);
-  const setPlayers = useAppStore((s) => s.setPlayers);
   const startDraft = useAppStore((s) => s.startDraft);
   const loadSavedDraft = useAppStore((s) => s.loadSavedDraft);
 
-  const [importErrors, setImportErrors] = useState<string[]>([]);
   const [configError, setConfigError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const update = (patch: Partial<LeagueConfig>) => {
     const next = { ...config, ...patch };
@@ -37,13 +32,6 @@ export function SetupScreen() {
   };
   const updateRoster = (patch: Partial<RosterConfig>) =>
     update({ roster: { ...config.roster, ...patch } });
-
-  const onFile = async (file: File) => {
-    const text = await file.text();
-    const { players: parsed, errors } = parsePlayersCsv(text);
-    setImportErrors(errors);
-    if (parsed.length > 0) setPlayers(parsed, file.name);
-  };
 
   const onStart = () => {
     const check = LeagueConfigSchema.safeParse(config);
@@ -103,7 +91,7 @@ export function SetupScreen() {
               </select>
             </label>
             <label>
-              Your slot
+              Your draft position
               <select
                 value={config.userDraftSlot}
                 onChange={(e) => update({ userDraftSlot: Number(e.target.value) })}
@@ -177,49 +165,7 @@ export function SetupScreen() {
 
         <section className="setup-card">
           <h2>Player data</h2>
-          <p>
-            Loaded: <strong>{playerSourceName}</strong> ({players.length} players)
-          </p>
-          <div className="button-row">
-            <button className="secondary" onClick={() => fileRef.current?.click()}>
-              Import CSV
-            </button>
-            <button
-              className="secondary"
-              onClick={() => {
-                setPlayers(samplePlayers(), SAMPLE_SOURCE_NAME);
-                setImportErrors([]);
-              }}
-            >
-              Use sample data
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,text/csv"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) void onFile(f);
-                e.target.value = '';
-              }}
-            />
-          </div>
-          <p className="hint">
-            CSV needs columns: name, team, position, projected_points (or points/fpts), adp.
-            Optional: adp_std_dev, tier, bye_week, injury_status.
-          </p>
-          {importErrors.length > 0 && (
-            <div className="import-errors">
-              <strong>{importErrors.length} rows skipped:</strong>
-              <ul>
-                {importErrors.slice(0, 5).map((err, i) => (
-                  <li key={i}>{err}</li>
-                ))}
-                {importErrors.length > 5 && <li>...and {importErrors.length - 5} more</li>}
-              </ul>
-            </div>
-          )}
+          <PlayerDataSources />
 
           <h2>Strategy</h2>
           <AiStrategyBuilder />
