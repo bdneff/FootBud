@@ -17,19 +17,26 @@ function log(...args) {
 }
 
 // Strategy: collect candidate rows from any element that looks like a pick
-// history entry. ESPN has rendered pick history as tables and as list items
-// across seasons, so we try several shapes and keep whichever parses.
+// entry. Calibrated against a live 2026 draft room, which renders picks as
+// <li class="picklist--item picklist--pick"> inside UL.picklist; older
+// table-based shapes are kept as fallbacks. A row only counts once a player
+// is actually in it (a playername child or position text), so the pre-pick
+// team-name rows and the upcoming "pick train" are ignored.
 function findPickRows() {
   const selectors = [
+    'li[class*="picklist--pick"]',
+    '[class*="picklist"] li',
+    '[class*="pick-history"] li',
     '[class*="pick-history"] tr',
     '[class*="pickHistory"] tr',
-    '[class*="pick-history"] li',
     '[class*="draft-history"] tr',
     'table tr',
   ];
   for (const selector of selectors) {
-    const rows = [...document.querySelectorAll(selector)].filter((row) =>
-      POSITION_RE.test(row.textContent || ''),
+    const rows = [...document.querySelectorAll(selector)].filter(
+      (row) =>
+        row.querySelector('[class*="playername"], [class*="playerName"]') ||
+        POSITION_RE.test(row.textContent || ''),
     );
     if (rows.length > 0) {
       log(`selector "${selector}" matched ${rows.length} rows`);
@@ -39,20 +46,41 @@ function findPickRows() {
   return [];
 }
 
-// Parse one row of pick-history text into a pick. Expected text shapes:
-//   "1.1 Bijan Robinson RB ATL Team Name"  |  "R1, P1 Bijan Robinson ATL RB"
+// Parse one pick row. Preferred path: ESPN's playerinfo child elements
+// (playerinfo__playername etc.); fallback: text heuristics for older
+// table layouts ("1.1 Bijan Robinson RB ATL" / "R1, P1 ...").
 function parseRow(row, index) {
   const text = (row.textContent || '').replace(/\s+/g, ' ').trim();
-  const posMatch = text.match(POSITION_RE);
-  if (!posMatch) return null;
-  const position = posMatch[1] === 'D/ST' ? 'DST' : posMatch[1];
 
-  // Overall pick number: "R1, P5" or "1.5" or a leading integer.
+  const nameEl = row.querySelector('[class*="playername"], [class*="playerName"]');
+  const posEl = row.querySelector('[class*="playerpos"], [class*="playerPos"], [class*="position"]');
+  const teamEl = row.querySelector('[class*="playerteam"], [class*="playerTeam"], [class*="pro-team"]');
+
+  let name = nameEl ? nameEl.textContent.replace(/\s+/g, ' ').trim() : null;
+  let position = null;
+  const posText = posEl ? posEl.textContent : text;
+  const posMatch = (posText || '').match(POSITION_RE);
+  if (posMatch) position = posMatch[1] === 'D/ST' ? 'DST' : posMatch[1];
+
+  if (!name) {
+    // Text-only fallback needs a position token to anchor on.
+    if (!posMatch || posText !== text) return null;
+    const before = text.slice(0, posMatch.index).replace(/^[\d.,RP\s]+/i, '').trim();
+    name = before.split(/\s{2,}/)[0].trim();
+  }
+  if (!name) return null;
+  // ESPN writes defenses as "Bears D/ST"; normalize the suffix.
+  name = name.replace(/\s*D\/ST\s*$/i, ' DST').trim();
+
+  // Overall pick number: "PICK 12" (current picklist), "R1, P5", "1.5",
+  // or a leading integer. Per-round numbering is fixed up in scan().
   let overall = null;
-  const rp = text.match(/R(\d+),?\s*P(\d+)/i);
-  const dot = text.match(/^(\d+)\.(\d+)\b/);
   const teams = window.__footbudTeams || 0;
+  const pickWord = text.match(/PICK\s*(\d+)/i);
+  const rp = text.match(/R(?:ND)?\s*(\d+),?\s*P(?:ICK)?\s*(\d+)/i);
+  const dot = text.match(/^(\d+)\.(\d+)\b/);
   if (rp && teams) overall = (Number(rp[1]) - 1) * teams + Number(rp[2]);
+  else if (pickWord) overall = Number(pickWord[1]);
   else if (dot && teams) overall = (Number(dot[1]) - 1) * teams + Number(dot[2]);
   else {
     const lead = text.match(/^(\d+)\b/);
@@ -60,12 +88,8 @@ function parseRow(row, index) {
   }
   if (!overall) overall = index + 1; // fall back to row order
 
-  // Player name: text before the position token, minus pick numbering.
-  const before = text.slice(0, posMatch.index).replace(/^[\d.,RP\s]+/i, '').trim();
-  const name = before.split(/\s{2,}/)[0].trim();
-  if (!name) return null;
-
-  return { overall, slot: 0, playerName: name, position, team: null };
+  const team = teamEl ? teamEl.textContent.replace(/\s+/g, ' ').trim() : null;
+  return { overall, slot: 0, playerName: name, position, team };
 }
 
 let lastSent = '';
@@ -84,17 +108,23 @@ function scan() {
   if (DEBUG && rows.length > 0) {
     log('sample row texts:', rows.slice(0, 3).map((r) => (r.textContent || '').replace(/\s+/g, ' ').slice(0, 100)));
   }
-  const picks = rows
-    .map((row, i) => parseRow(row, i))
-    .filter(Boolean)
-    .sort((a, b) => a.overall - b.overall)
-    // Deduplicate by overall (some layouts render a row twice).
-    .filter((p, i, arr) => i === 0 || arr[i - 1].overall !== p.overall);
+  let picks = rows.map((row, i) => parseRow(row, i)).filter(Boolean);
+  // If ESPN numbers picks per round ("PICK 1" restarting each round), the
+  // parsed overalls will not be strictly increasing in row order; the row
+  // order itself is the true draft order, so renumber from it.
+  const increasing = picks.every((p, i) => i === 0 || p.overall > picks[i - 1].overall);
+  if (!increasing) {
+    log('pick numbers not strictly increasing (per-round numbering); using row order');
+    picks = picks.map((p, i) => ({ ...p, overall: i + 1 }));
+  }
+  picks.sort((a, b) => a.overall - b.overall);
+  // Deduplicate by overall (some layouts render a row twice).
+  picks = picks.filter((p, i, arr) => i === 0 || arr[i - 1].overall !== p.overall);
   if (picks.length === 0) return;
   const fingerprint = JSON.stringify(picks.map((p) => [p.overall, p.playerName]));
   if (fingerprint === lastSent) return;
   lastSent = fingerprint;
-  log('sending', picks.length, 'picks');
+  log('sending picks:', picks.map((p) => `${p.overall} ${p.playerName} ${p.position ?? '?'}`));
   chrome.runtime.sendMessage({ type: 'footbud-picks', picks }).catch(() => {});
 }
 

@@ -27,7 +27,15 @@ export function matchPlayerByName(players: Iterable<Player>, name: string): Play
     const norm = normalize(p.name);
     return norm.split(' ').includes(q) || norm.includes(q);
   });
-  return byToken.length === 1 ? byToken[0]! : null;
+  if (byToken.length === 1) return byToken[0]!;
+
+  // Defense names vary by platform ("Bears DST" vs "Chicago Bears"): retry
+  // with the DST suffix dropped so the nickname token can match.
+  if (/\bdst$/.test(q)) {
+    const nickname = q.replace(/\s*dst$/, '').trim();
+    if (nickname && nickname !== q) return matchPlayerByName(all, nickname);
+  }
+  return null;
 }
 
 /** Map playerId -> stance for every note that resolves to a real player. */

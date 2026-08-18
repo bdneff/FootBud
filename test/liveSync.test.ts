@@ -148,3 +148,15 @@ describe('synced draft building', () => {
     expect(corrected.state.availablePlayers.some((p) => p.name === 'Bijan Robinson')).toBe(true);
   });
 });
+
+describe('DST name matching across platforms', () => {
+  it('matches "Bears DST"-style names to city-name defenses', async () => {
+    const { matchPlayerByName } = await import('../src/strategy/playerMatch');
+    const pool = [
+      { playerId: 'd1', name: 'Chicago Bears', team: 'CHI', position: 'DST' as const, projectedPoints: 110, adp: 180 },
+      { playerId: 'd2', name: 'Baltimore Ravens', team: 'BAL', position: 'DST' as const, projectedPoints: 135, adp: 139 },
+    ];
+    expect(matchPlayerByName(pool, 'Bears DST')?.playerId).toBe('d1');
+    expect(matchPlayerByName(pool, 'Ravens D/ST'.replace(/\s*D\/ST\s*$/i, ' DST'))?.playerId).toBe('d2');
+  });
+});
