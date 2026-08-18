@@ -16,6 +16,8 @@ import { DraftStrategySchema, type DraftStrategy } from './strategy/types';
 
 import { AnthropicProvider } from './ai/anthropic';
 import type { AIProvider } from './ai/provider';
+import { parseEspnPlayers } from './data/sources/espn';
+import { currentSeason } from './data/sources/types';
 import { sleeperDraftSource } from './draft/sources/sleeper';
 import { buildSyncedDraft } from './draft/sources/sync';
 import type { ExternalDraftInfo, ExternalPick } from './draft/sources/types';
@@ -23,6 +25,14 @@ import type { ExternalDraftInfo, ExternalPick } from './draft/sources/types';
 const SAVE_KEY = 'footbud.save.v1';
 const AI_KEY = 'footbud.ai.v1';
 const SYNC_POLL_MS = 5000;
+
+export interface EspnClockState {
+  /** True when the ESPN draft socket says our team is on the clock. */
+  yourTurn: boolean;
+  /** Pick clock ms remaining as of `at` (extrapolate locally for display). */
+  msRemaining: number | null;
+  at: number;
+}
 
 export interface LiveSyncState {
   sourceId: 'sleeper' | 'espn-bridge';
@@ -33,6 +43,7 @@ export interface LiveSyncState {
   pickCount: number;
   error: string | null;
   warnings: string[];
+  espnClock: EspnClockState | null;
 }
 
 export interface AppState {
@@ -64,6 +75,8 @@ export interface AppState {
   resumeLiveSync: () => void;
   disconnectLiveSync: () => void;
   syncNow: () => Promise<void>;
+  /** Submit a pick in the ESPN draft room via the bridge extension. */
+  sendEspnPick: (playerName: string, position: string) => void;
 }
 
 function loadAiKey(): string {
@@ -222,6 +235,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           pickCount: 0,
           error: null,
           warnings: [],
+          espnClock: null,
         },
       });
       startPolling();
@@ -249,9 +263,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           pickCount: 0,
           error: null,
           warnings: [],
+          espnClock: null,
         },
       });
       startEspnBridgeListener();
+      // Pull ESPN's own projections/ADP through the extension; when the
+      // payload lands the pool swaps and the board rebuilds on it.
+      requestEspnProjections();
     } catch (e) {
       set({ lastError: e instanceof Error ? e.message : String(e) });
     }
@@ -279,6 +297,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (get().liveSync) set({ liveSync: null });
   },
 
+  sendEspnPick: (playerName, position) => {
+    const { liveSync } = get();
+    if (!liveSync || liveSync.sourceId !== 'espn-bridge') return;
+    if (!liveSync.espnClock?.yourTurn) {
+      set({ lastError: 'It is not your turn in the ESPN draft room yet.' });
+      return;
+    }
+    window.postMessage({ source: 'footbud-app', type: 'make-pick', playerName, position }, '*');
+  },
+
   syncNow: async () => {
     const { liveSync } = get();
     if (!liveSync || liveSync.sourceId !== 'sleeper' || liveSync.status === 'paused') return;
@@ -296,13 +324,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 }));
 
+/** Last authoritative pick list, kept so a pool swap can force a rebuild. */
+let lastExternalPicks: ExternalPick[] = [];
+
 /** Rebuild the draft from an authoritative external pick list. */
-function applyExternalPicks(picks: ExternalPick[]): void {
+function applyExternalPicks(picks: ExternalPick[], force = false): void {
+  lastExternalPicks = picks;
   const { config, players, strategy, liveSync, draft } = useAppStore.getState();
   if (!liveSync) return;
   // Skip rebuild when nothing changed; rebuild otherwise so platform-side
   // corrections are absorbed.
-  if (draft && liveSync.pickCount === picks.length && liveSync.lastSyncAt !== null) {
+  if (!force && draft && liveSync.pickCount === picks.length && liveSync.lastSyncAt !== null) {
     useAppStore.setState({ liveSync: { ...liveSync, lastSyncAt: Date.now(), error: null } });
     return;
   }
@@ -346,6 +378,22 @@ function stopPolling(): void {
 interface BridgeMessage {
   source?: string;
   picks?: unknown[];
+  status?: {
+    yourTurn?: boolean;
+    msRemaining?: number | null;
+    at?: number;
+  };
+  projections?: unknown;
+  projectionsSeason?: number;
+  projectionsError?: string | null;
+}
+
+/** Ask the bridge extension for ESPN's projections + ADP payload. */
+export function requestEspnProjections(): void {
+  window.postMessage(
+    { source: 'footbud-app', type: 'request-projections', season: currentSeason() },
+    '*',
+  );
 }
 
 let bridgeListener: ((event: MessageEvent) => void) | null = null;
@@ -354,7 +402,54 @@ function startEspnBridgeListener(): void {
   stopEspnBridgeListener();
   bridgeListener = (event: MessageEvent) => {
     const data = event.data as BridgeMessage;
-    if (!data || data.source !== 'footbud-espn-bridge' || !Array.isArray(data.picks)) return;
+    if (!data || data.source !== 'footbud-espn-bridge') return;
+    const current = useAppStore.getState().liveSync;
+    if (!current || current.sourceId !== 'espn-bridge') return;
+
+    // ESPN projections payload fetched by the extension with the user's
+    // session: swap in the real pool and rebuild the synced board on it.
+    if (data.projections !== undefined) {
+      if (!data.projections) {
+        if (data.projectionsError) {
+          useAppStore.setState({
+            liveSync: { ...current, warnings: [...current.warnings, `ESPN projections: ${data.projectionsError}`] },
+          });
+        }
+        return;
+      }
+      try {
+        const season = typeof data.projectionsSeason === 'number' ? data.projectionsSeason : currentSeason();
+        const parsed = parseEspnPlayers(data.projections, useAppStore.getState().config.scoringFormat, season);
+        useAppStore.getState().setPlayers(parsed.players, 'ESPN projections (via extension)');
+        applyExternalPicks(lastExternalPicks, true);
+      } catch (e) {
+        useAppStore.setState({
+          liveSync: {
+            ...current,
+            warnings: [...current.warnings, `ESPN projections: ${e instanceof Error ? e.message : e}`],
+          },
+        });
+      }
+      return;
+    }
+
+    // Clock/turn status from the draft socket.
+    if (data.status && typeof data.status === 'object') {
+      useAppStore.setState({
+        liveSync: {
+          ...current,
+          espnClock: {
+            yourTurn: data.status.yourTurn === true,
+            msRemaining:
+              typeof data.status.msRemaining === 'number' ? data.status.msRemaining : null,
+            at: typeof data.status.at === 'number' ? data.status.at : Date.now(),
+          },
+        },
+      });
+      return;
+    }
+
+    if (!Array.isArray(data.picks)) return;
     const { liveSync } = useAppStore.getState();
     if (!liveSync || liveSync.sourceId !== 'espn-bridge' || liveSync.status === 'paused') return;
     const picks: ExternalPick[] = [];

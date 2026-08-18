@@ -4,6 +4,7 @@ import { useAppStore } from '../store';
 import { AskAi } from './AskAi';
 import { AvailablePlayers } from './AvailablePlayers';
 import { DraftBoard } from './DraftBoard';
+import { EspnCountdown } from './EspnClock';
 import { Logo } from './Logo';
 import { RecommendationPanel } from './RecommendationPanel';
 import { RosterPanel } from './RosterPanel';
@@ -66,6 +67,9 @@ export function DraftScreen() {
                   : 'complete'}
               {liveSync.error ? ' · retrying' : ''}
             </span>
+          )}
+          {liveSync?.sourceId === 'espn-bridge' && liveSync.espnClock && (
+            <EspnCountdown clock={liveSync.espnClock} />
           )}
           {liveSync && liveSync.status !== 'complete' && (
             <button

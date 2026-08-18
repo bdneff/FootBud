@@ -951,3 +951,28 @@ label {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+
+/* ---------- ESPN pick clock ---------- */
+
+.espn-clock {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 3px 10px;
+}
+.espn-clock.your-turn {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.espn-clock.urgent {
+  color: var(--danger);
+  border-color: var(--danger);
+  animation: sync-pulse 0.8s ease-in-out infinite;
+}
+.espn-pick-btn {
+  margin-top: 12px;
+  width: 100%;
+}

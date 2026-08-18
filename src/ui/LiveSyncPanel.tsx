@@ -103,10 +103,14 @@ export function LiveSyncPanel() {
             Experimental: see <code>extension/README.md</code> in the FootBud repo to install it.
           </p>
           <ol>
-            <li>Set up your league, roster, draft position, and projections above to match ESPN.</li>
+            <li>Set up your league, roster, and draft position above to match ESPN.</li>
             <li>Install the FootBud extension (chrome://extensions, developer mode, load unpacked).</li>
             <li>Open your ESPN draft room in another tab.</li>
-            <li>Press the button below; picks appear as the extension reports them.</li>
+            <li>
+              Press the button below; ESPN projections and ADP load automatically through the
+              extension, picks stream in live, and a draft button appears in FootBud whenever you
+              are on the clock.
+            </li>
           </ol>
           <button className="secondary" onClick={startEspnBridgeDraft}>
             Start ESPN-linked draft

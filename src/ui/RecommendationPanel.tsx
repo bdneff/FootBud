@@ -5,8 +5,9 @@ import type { Recommendation, ScoredPlayer } from '../engine/recommend';
 import { useAppStore } from '../store';
 import { DecisionTreeView } from './DecisionTreeView';
 import { EngineDetails } from './EngineDetails';
+import { formatClock, useEspnCountdown } from './EspnClock';
 
-function AltRow({ alt }: { alt: ScoredPlayer }) {
+function AltRow({ alt, onEspnDraft }: { alt: ScoredPlayer; onEspnDraft: (() => void) | null }) {
   const reason = alt.reasons[0] ?? 'Solid value at the position.';
   const wait = alt.cautions[0] ?? null;
   return (
@@ -14,6 +15,11 @@ function AltRow({ alt }: { alt: ScoredPlayer }) {
       <div className="alt-head">
         <span className={`pos-badge pos-${alt.player.position}`}>{alt.player.position}</span>
         <strong>{alt.player.name}</strong>
+        {onEspnDraft && (
+          <button className="draft-btn" onClick={onEspnDraft}>
+            Draft
+          </button>
+        )}
         <span className="alt-score">{alt.score.toFixed(0)}</span>
       </div>
       <div className="alt-detail">
@@ -36,7 +42,11 @@ export function RecommendationPanel({
 }) {
   const makePick = useAppStore((s) => s.makePick);
   const liveSync = useAppStore((s) => s.liveSync);
+  const sendEspnPick = useAppStore((s) => s.sendEspnPick);
   const synced = liveSync !== null && liveSync.status !== 'complete';
+  const espnBridge = synced && liveSync.sourceId === 'espn-bridge';
+  const espnTurn = espnBridge && liveSync.espnClock?.yourTurn === true;
+  const clockSeconds = useEspnCountdown(espnBridge ? liveSync.espnClock : null);
   const tree = useMemo(
     () => (rec && !draft.complete ? buildDecisionTree(draft, rec) : null),
     [draft, rec],
@@ -93,7 +103,23 @@ export function RecommendationPanel({
             Draft {best.player.name}
           </button>
         )}
-        {userIsOnClock && synced && (
+        {espnBridge && espnTurn && (
+          <button
+            className="primary espn-pick-btn"
+            onClick={() => sendEspnPick(best.player.name, best.player.position)}
+          >
+            Draft {best.player.name} in ESPN
+            {clockSeconds !== null ? ` · ${formatClock(clockSeconds)}` : ''}
+          </button>
+        )}
+        {espnBridge && !espnTurn && (
+          <p className="hint">
+            Waiting for your ESPN turn
+            {clockSeconds !== null ? ` · pick clock ${formatClock(clockSeconds)}` : ''}. The draft
+            button appears when you are on the clock.
+          </p>
+        )}
+        {userIsOnClock && synced && !espnBridge && (
           <p className="hint">Make this pick in your {liveSync!.sourceLabel} draft room.</p>
         )}
       </div>
@@ -101,7 +127,13 @@ export function RecommendationPanel({
       <div className="section-title">Alternatives</div>
       <div className="alternatives">
         {rec.alternatives.map((alt) => (
-          <AltRow key={alt.player.playerId} alt={alt} />
+          <AltRow
+            key={alt.player.playerId}
+            alt={alt}
+            onEspnDraft={
+              espnTurn ? () => sendEspnPick(alt.player.name, alt.player.position) : null
+            }
+          />
         ))}
       </div>
 

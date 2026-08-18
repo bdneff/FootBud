@@ -310,6 +310,37 @@ function resolvedSocketPicks() {
 
 let wsLogCount = 0;
 let wsLogWindowStart = 0;
+// ---- Clock / on-the-clock status ---------------------------------------
+// CLOCK <n> <msRemaining> <teamId> ticks every ~5s for the team on the
+// clock; SELECTING <teamId> <allottedMs> announces a new turn. The JOIN
+// URL's numbered param 3 is our own team id, so the two together tell
+// FootBud whether it is our pick and how much time is left.
+
+let myTeamId = null;
+let clockState = { onClockTeamId: null, msRemaining: null, at: 0 };
+let lastStatusSent = 0;
+
+function pushStatus(force) {
+  const now = Date.now();
+  if (!force && now - lastStatusSent < 1000) return;
+  lastStatusSent = now;
+  chrome.runtime
+    .sendMessage({
+      type: 'footbud-status',
+      status: {
+        myTeamId,
+        onClockTeamId: clockState.onClockTeamId,
+        yourTurn:
+          myTeamId !== null &&
+          clockState.onClockTeamId !== null &&
+          myTeamId === clockState.onClockTeamId,
+        msRemaining: clockState.msRemaining,
+        at: clockState.at,
+      },
+    })
+    .catch(() => {});
+}
+
 let draftSocketSeen = false;
 document.addEventListener('footbud-ws-message', (event) => {
   const detail = event.detail || {};
@@ -321,7 +352,9 @@ document.addEventListener('footbud-ws-message', (event) => {
   const isDraftSocket = url.includes('fantasydraft');
   if (isDraftSocket && !draftSocketSeen) {
     draftSocketSeen = true;
-    log('draft socket connected:', url.slice(0, 90));
+    const teamMatch = url.match(/[?&]3=(\d+)/);
+    if (teamMatch) myTeamId = Number(teamMatch[1]);
+    log('draft socket connected:', url.slice(0, 90), '| my team id:', myTeamId ?? 'unknown');
     ensurePlayerMap();
   }
 
@@ -329,7 +362,20 @@ document.addEventListener('footbud-ws-message', (event) => {
   if (isDraftSocket && parts[0] === 'SELECTED' && parts.length >= 3 && /^-?\d+$/.test(parts[2])) {
     ensurePlayerMap();
     recordSocketPick(Number(parts[2]));
+    // The turn is over until the next SELECTING arrives.
+    clockState = { onClockTeamId: null, msRemaining: null, at: Date.now() };
+    pushStatus(true);
     scan();
+    return;
+  }
+  if (isDraftSocket && parts[0] === 'SELECTING' && parts.length >= 3) {
+    clockState = { onClockTeamId: Number(parts[1]), msRemaining: Number(parts[2]), at: Date.now() };
+    pushStatus(true);
+    return;
+  }
+  if (isDraftSocket && parts[0] === 'CLOCK' && parts.length >= 4) {
+    clockState = { onClockTeamId: Number(parts[3]), msRemaining: Number(parts[2]), at: Date.now() };
+    pushStatus(false);
     return;
   }
 
@@ -369,6 +415,60 @@ function sniffMutations(mutations) {
     }
   }
 }
+
+// ---- Pick submission from FootBud ---------------------------------------
+// FootBud sends the chosen player's name/position; we resolve it to an
+// ESPN player id via the directory and hand the SELECT to the MAIN-world
+// tap. Guarded: only when the draft socket says it is actually our turn.
+
+function normalizeName(name) {
+  return String(name)
+    .toLowerCase()
+    .replace(/\bd\/st\b/g, 'dst')
+    .replace(/\b(jr|sr|ii|iii|iv|v)\b\.?/g, '')
+    .replace(/[^a-z0-9 ]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function resolveEspnPlayerId(playerName, position) {
+  if (!playerMap) return null;
+  const want = normalizeName(playerName);
+  let fallback = null;
+  for (const [id, info] of Object.entries(playerMap)) {
+    if (normalizeName(info.name) !== want) continue;
+    if (position && info.position && info.position !== position) {
+      fallback = Number(id);
+      continue;
+    }
+    return Number(id);
+  }
+  return fallback;
+}
+
+document.addEventListener('footbud-select-result', (event) => {
+  const d = (event && event.detail) || {};
+  log(d.ok ? `SELECT sent for player ${d.playerId}` : `SELECT failed: ${d.reason}`);
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (!message || message.type !== 'footbud-do-pick') return;
+  const yourTurn =
+    myTeamId !== null &&
+    clockState.onClockTeamId !== null &&
+    myTeamId === clockState.onClockTeamId;
+  if (!yourTurn) {
+    log('pick request ignored: it is not your turn');
+    return;
+  }
+  const id = resolveEspnPlayerId(message.playerName, message.position);
+  if (id === null) {
+    log(`pick request failed: could not resolve "${message.playerName}" to an ESPN player id`);
+    return;
+  }
+  log(`submitting pick: ${message.playerName} (ESPN id ${id})`);
+  document.dispatchEvent(new CustomEvent('footbud-send-select', { detail: { playerId: id } }));
+});
 
 const observer = new MutationObserver((mutations) => {
   sniffMutations(mutations);

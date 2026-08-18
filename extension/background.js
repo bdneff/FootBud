@@ -54,10 +54,15 @@ function getPlayerMap(season) {
   return playerMapPromise;
 }
 
+/** Tab id of the ESPN draft room, learned from its own messages. */
+let espnTabId = null;
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return undefined;
 
-  if (message.type === 'footbud-picks') {
+  // Draft-room -> FootBud broadcasts (picks and clock status).
+  if (message.type === 'footbud-picks' || message.type === 'footbud-status') {
+    if (sender.tab?.id !== undefined) espnTabId = sender.tab.id;
     chrome.tabs.query({}, (tabs) => {
       for (const tab of tabs) {
         if (tab.id === undefined || tab.id === sender.tab?.id) continue;
@@ -69,9 +74,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return undefined;
   }
 
+  // FootBud -> draft room: submit a pick.
+  if (message.type === 'footbud-make-pick') {
+    if (espnTabId !== null) {
+      chrome.tabs.sendMessage(espnTabId, { ...message, type: 'footbud-do-pick' }).catch(() => {});
+    }
+    return undefined;
+  }
+
   if (message.type === 'footbud-need-players') {
     getPlayerMap(message.season)
       .then((players) => sendResponse({ players }))
+      .catch((e) => sendResponse({ error: e instanceof Error ? e.message : String(e) }));
+    return true; // async response
+  }
+
+  // Full projections + ADP payload (kona_player_info) for FootBud's player
+  // pool, fetched with the user's own ESPN session.
+  if (message.type === 'footbud-need-projections') {
+    const season = message.season;
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${season}/segments/0/leaguedefaults/3?view=kona_player_info`;
+    fetch(url, {
+      headers: {
+        'x-fantasy-filter': JSON.stringify({
+          players: {
+            limit: 400,
+            sortDraftRanks: { sortPriority: 1, sortAsc: true, value: 'STANDARD' },
+          },
+        }),
+      },
+      credentials: 'include',
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`ESPN projections endpoint responded ${res.status}`);
+        const payload = await res.json();
+        sendResponse({ payload, season });
+      })
       .catch((e) => sendResponse({ error: e instanceof Error ? e.message : String(e) }));
     return true; // async response
   }
