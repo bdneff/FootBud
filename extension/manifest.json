@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Relays picks from an open ESPN fantasy football draft room to the FootBud draft companion tab. Experimental.",
   "permissions": [],
+  "host_permissions": ["https://lm-api-reads.fantasy.espn.com/*"],
   "background": {
     "service_worker": "background.js"
   },

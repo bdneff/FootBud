@@ -209,9 +209,13 @@ function scan() {
   picks.sort((a, b) => a.overall - b.overall);
   // Deduplicate by overall (some layouts render a row twice).
   picks = picks.filter((p, i, arr) => i === 0 || arr[i - 1].overall !== p.overall);
-  // No visible history rows: fall back to the accumulated announcements.
+  // Source priority: the draft socket sees every pick by every team, so it
+  // wins whenever it has the most complete list; announcement cards and
+  // history rows remain as fallbacks.
   const announced = Object.values(captured).sort((a, b) => a.overall - b.overall);
   if (picks.length < announced.length) picks = announced;
+  const fromSocket = resolvedSocketPicks();
+  if (fromSocket.length >= picks.length) picks = fromSocket;
   if (picks.length === 0) return;
   const fingerprint = JSON.stringify(picks.map((p) => [p.overall, p.playerName]));
   if (fingerprint === lastSent) return;
@@ -237,11 +241,89 @@ function detectTeams() {
 // Paste the [footbud-bridge] ws/new-element lines that show up right after
 // an opponent's pick; they are the calibration data for a full parser.
 
+// ---- Socket pick capture (primary source) -------------------------------
+// The draft socket speaks a simple text protocol; every pick by every team
+// arrives as:   SELECTED <a> <playerId> <b> {memberGUID}
+// The id is ESPN's player id (negative ids are D/ST). Names come from the
+// player directory served by the background worker. Arrival order is draft
+// order; the sequence persists in sessionStorage across page refreshes.
+
+const SOCKET_KEY = 'footbud-socket-picks:' + location.search;
+let socketPicks = [];
+try {
+  socketPicks = JSON.parse(sessionStorage.getItem(SOCKET_KEY) || '[]');
+} catch {
+  socketPicks = [];
+}
+
+const SEASON = (() => {
+  const now = new Date();
+  return now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+})();
+
+let playerMap = null;
+let playerMapRequested = false;
+function ensurePlayerMap() {
+  if (playerMap || playerMapRequested) return;
+  playerMapRequested = true;
+  chrome.runtime.sendMessage({ type: 'footbud-need-players', season: SEASON }, (resp) => {
+    if (resp && resp.players) {
+      playerMap = resp.players;
+      log(`player directory loaded: ${Object.keys(playerMap).length} players`);
+      scan();
+    } else {
+      log('player directory failed to load:', resp && resp.error);
+      playerMapRequested = false; // retry on a later message
+    }
+  });
+}
+
+function recordSocketPick(playerId) {
+  if (socketPicks.some((p) => p.playerId === playerId)) return;
+  socketPicks.push({ overall: socketPicks.length + 1, playerId });
+  try {
+    sessionStorage.setItem(SOCKET_KEY, JSON.stringify(socketPicks));
+  } catch {
+    // In-memory list still works.
+  }
+  const info = playerMap && playerMap[playerId];
+  log(`socket pick ${socketPicks.length}: id ${playerId}${info ? ` -> ${info.name} ${info.position ?? ''}` : ' (name pending directory)'}`);
+}
+
+function resolvedSocketPicks() {
+  if (socketPicks.length === 0) return [];
+  if (!playerMap) {
+    ensurePlayerMap();
+    return [];
+  }
+  return socketPicks.map((p) => {
+    const info = playerMap[p.playerId];
+    return {
+      overall: p.overall,
+      slot: 0,
+      playerName: info ? info.name : `ESPN player ${p.playerId}`,
+      position: info ? info.position : null,
+      team: info ? info.team : null,
+    };
+  });
+}
+
 let wsLogCount = 0;
 let wsLogWindowStart = 0;
 document.addEventListener('footbud-ws-message', (event) => {
-  if (!DEBUG) return;
   const detail = event.detail || {};
+  const data = String(detail.data || '').trim();
+
+  const parts = data.split(/\s+/);
+  if (parts[0] === 'SELECTED' && parts.length >= 3 && /^-?\d+$/.test(parts[2])) {
+    ensurePlayerMap();
+    recordSocketPick(Number(parts[2]));
+    scan();
+    return;
+  }
+
+  if (!DEBUG) return;
+  if (parts[0] === 'CLOCK' || parts[0] === 'PING' || parts[0] === 'PONG') return; // ticks are noise
   const now = Date.now();
   if (now - wsLogWindowStart > 10000) {
     wsLogWindowStart = now;
@@ -249,7 +331,7 @@ document.addEventListener('footbud-ws-message', (event) => {
   }
   if (wsLogCount >= 20) return; // cap the flood; samples are what matter
   wsLogCount++;
-  log('ws:', String(detail.url || ''), '::', String(detail.data || ''));
+  log('ws:', String(detail.url || ''), '::', data.slice(0, 200));
 });
 
 const sniffSeen = new Set();
