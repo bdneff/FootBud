@@ -1,9 +1,9 @@
 {
-  "name": "fantasy-draft-engine",
+  "name": "footbud",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Fantasy football draft decision engine: a live draft companion that recommends picks from draft state, VOR, scarcity, and survival probability.",
+  "description": "FootBud: a fantasy football draft companion that recommends picks from draft state, VOR, scarcity, and survival probability.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -22,6 +22,7 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "playwright-core": "^1.62.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"
